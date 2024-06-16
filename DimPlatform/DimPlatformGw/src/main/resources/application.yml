@@ -1,0 +1,22 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: gateway-service
+
+zuul:
+  routes:
+    service1:
+      path: /service1/**
+      url: http://localhost:8081
+    service2:
+      path: /service2/**
+      url: http://localhost:8082
+
+eureka:
+  client:
+    serviceUrl:
+      defaultZone: http://localhost:8761/eureka/
+  instance:
+    preferIpAddress: true
