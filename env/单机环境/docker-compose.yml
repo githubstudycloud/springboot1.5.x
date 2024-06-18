@@ -51,8 +51,9 @@ services:
       - 2181:2181
     volumes:
       - ./zookeeper/zoo.cfg:/conf/zoo.cfg
-      - zookeeper_data:/data
-      - zookeeper_datalog:/datalog
+    environment:
+      - ZOOKEEPER_CLIENT_PORT=2181
+      - ZOOKEEPER_TICK_TIME=2000
     networks:
       - backend
 
@@ -65,22 +66,25 @@ services:
       - 9092:9092
     volumes:
       - ./kafka/server.properties:/etc/kafka/server.properties
-      - kafka_data:/var/lib/kafka/data
     environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      - KAFKA_BROKER_ID=1
+      - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT
+      - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
     networks:
       - backend
 
   kafka_exporter:
-    image: danielqsj/kafka-exporter:v1.2.0
+    image: danielqsj/kafka-exporter:v1.0.0
     container_name: kafka_exporter
     ports:
       - 9308:9308
     environment:
-      KAFKA_SERVER: kafka:9092
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_VERSION=2.0.0
+    depends_on:
+      - kafka
     networks:
       - backend
 
