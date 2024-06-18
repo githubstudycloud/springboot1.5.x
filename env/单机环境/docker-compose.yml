@@ -12,6 +12,16 @@ services:
     networks:
       - backend
 
+  redis_exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: redis_exporter
+    ports:
+      - 9121:9121
+    environment:
+      - REDIS_ADDR=redis://redis:6379
+    networks:
+      - backend
+
   rabbitmq:
     image: rabbitmq:3.6-management
     container_name: rabbitmq
@@ -21,6 +31,16 @@ services:
     volumes:
       - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf
       - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - backend
+
+  rabbitmq_exporter:
+    image: kbudde/rabbitmq-exporter:latest
+    container_name: rabbitmq_exporter
+    ports:
+      - 9419:9419
+    environment:
+      - RABBIT_URL=http://rabbitmq:15672
     networks:
       - backend
 
@@ -54,6 +74,16 @@ services:
     networks:
       - backend
 
+  kafka_exporter:
+    image: danielqsj/kafka-exporter:v1.2.0
+    container_name: kafka_exporter
+    ports:
+      - 9308:9308
+    environment:
+      KAFKA_SERVER: kafka:9092
+    networks:
+      - backend
+
   mongo:
     image: mongo:3.4
     container_name: mongo
@@ -63,6 +93,16 @@ services:
       - ./mongodb/mongod.conf:/etc/mongo/mongod.conf
       - mongo_data:/data/db
     command: mongod --config /etc/mongo/mongod.conf
+    networks:
+      - backend
+
+  mongo_exporter:
+    image: bitnami/mongodb-exporter:latest
+    container_name: mongo_exporter
+    ports:
+      - 9216:9216
+    environment:
+      - MONGODB_URI=mongodb://mongo:27017
     networks:
       - backend
 
@@ -82,7 +122,8 @@ services:
     ports:
       - 3000:3000
     volumes:
-      - ./grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
