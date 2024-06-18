@@ -1,0 +1,103 @@
+version: '3'
+services:
+  redis:
+    image: redis:3.2
+    container_name: redis
+    ports:
+      - 6379:6379
+    volumes:
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf
+      - redis_data:/data
+    command: redis-server /usr/local/etc/redis/redis.conf
+    networks:
+      - backend
+
+  rabbitmq:
+    image: rabbitmq:3.6-management
+    container_name: rabbitmq
+    ports:
+      - 5672:5672
+      - 15672:15672
+    volumes:
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - backend
+
+  zookeeper:
+    image: zookeeper:3.4
+    container_name: zookeeper
+    ports:
+      - 2181:2181
+    volumes:
+      - ./zookeeper/zoo.cfg:/conf/zoo.cfg
+      - zookeeper_data:/data
+      - zookeeper_datalog:/datalog
+    networks:
+      - backend
+
+  kafka:
+    image: confluentinc/cp-kafka:3.3.1
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - 9092:9092
+    volumes:
+      - ./kafka/server.properties:/etc/kafka/server.properties
+      - kafka_data:/var/lib/kafka/data
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    networks:
+      - backend
+
+  mongo:
+    image: mongo:3.4
+    container_name: mongo
+    ports:
+      - 27017:27017
+    volumes:
+      - ./mongodb/mongod.conf:/etc/mongo/mongod.conf
+      - mongo_data:/data/db
+    command: mongod --config /etc/mongo/mongod.conf
+    networks:
+      - backend
+
+  prometheus:
+    image: prom/prometheus:v2.28.1
+    container_name: prometheus
+    ports:
+      - 9090:9090
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - backend
+
+  grafana:
+    image: grafana/grafana:8.1.2
+    container_name: grafana
+    ports:
+      - 3000:3000
+    volumes:
+      - ./grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - prometheus
+    networks:
+      - backend
+
+volumes:
+  redis_data:
+  rabbitmq_data:
+  zookeeper_data:
+  zookeeper_datalog:
+  kafka_data:
+  mongo_data:
+
+networks:
+  backend:
