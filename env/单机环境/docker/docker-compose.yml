@@ -21,6 +21,9 @@ services:
       - REDIS_ADDR=redis://redis:6379
     networks:
       - backend
+    depends_on:
+      - redis
+    command: sh -c "sleep 30 && redis_exporter"
 
   rabbitmq:
     image: rabbitmq:3.6-management
@@ -31,6 +34,10 @@ services:
     volumes:
       - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf
       - rabbitmq_data:/var/lib/rabbitmq
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+      - RABBITMQ_PLUGINS_ENABLE=rabbitmq_management,rabbitmq_tracing
     networks:
       - backend
 
@@ -41,8 +48,15 @@ services:
       - 9419:9419
     environment:
       - RABBIT_URL=http://rabbitmq:15672
+      - RABBIT_USER=guest
+      - RABBIT_PASSWORD=guest
+      - PUBLISH_PORT=9419
+      - OUTPUT_FORMAT=prometheus
     networks:
       - backend
+    depends_on:
+      - rabbitmq
+    command: sh -c "sleep 30 && rabbitmq_exporter"
 
   zookeeper:
     image: zookeeper:3.4
@@ -87,6 +101,11 @@ services:
       - kafka
     networks:
       - backend
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9308/metrics"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   mongo:
     image: mongo:3.4
@@ -109,6 +128,8 @@ services:
       - MONGODB_URI=mongodb://mongo:27017
     networks:
       - backend
+    depends_on:
+      - mongo
 
   prometheus:
     image: prom/prometheus:v2.28.1
