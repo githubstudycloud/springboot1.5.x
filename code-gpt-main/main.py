@@ -4,10 +4,14 @@ import time
 from datetime import datetime
 
 # 配置部分
-FILE_EXTENSIONS = ['.py', '.properties', '.yml', '.java', '.xml']  # 支持的文件扩展名
-FOLDER_PATH = r'E:\idea\java\springboot1.5.x\DimPlatform'  # 输入文件夹路径
+#FILE_EXTENSIONS = ['.py', '.properties', '.yml', '.java', '.xml']  # 支持的文件扩展名
+#FOLDER_PATH = r'E:\idea\java\springboot1.5.x\DimPlatform'  # 输入文件夹路径
+
+FILE_EXTENSIONS = ['.yml', '.properties', '.conf', '.cfg', '.yml']  # 支持的文件扩展名
+FOLDER_PATH = r'E:\idea\java\springboot1.5.x\env\单机环境'  # 输入文件夹路径
 OUTPUT_FILE = 'output_{}.md'.format(datetime.now().strftime('%Y%m%d%H%M%S'))  # 输出文件名，带时间戳
 BUFFER_SIZE = 4096  # 缓冲区大小
+
 
 def get_directory_structure(folder_path, base_path):
     """
@@ -34,6 +38,7 @@ def get_directory_structure(folder_path, base_path):
                 structure.append(f"  - [{file}](#{anchor})")
                 paths.append((relative_file_path, display_path))
     return '\n'.join(structure), paths
+
 
 def merge_files(folder_path, out_file, base_path):
     """
@@ -93,6 +98,7 @@ def merge_files(folder_path, out_file, base_path):
 
     time.sleep(0.1)
     return count
+
 
 if __name__ == '__main__':
     if os.getpid() == 0:

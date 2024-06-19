@@ -1,6 +1,9 @@
 spring:
   application:
     name: test-service
+  profiles:
+    active: test
+
 
 server:
   port: 8082
@@ -12,6 +15,3 @@ eureka:
   instance:
     preferIpAddress: true
 
-spring:
-  profiles:
-    active: test
