@@ -178,5 +178,9 @@ docker-compose down -v
 
 ## 10. 常见问题
 (根据实际情况补充)
+root@ubuntu:/home/docker/client# docker compose version
+Docker Compose version v2.27.0
+root@ubuntu:/home/docker/client# docker -v
+Docker version 26.1.3, build b72abbb
 
 这是一个基本的介绍和使用文档的框架,你可以在此基础上进一步丰富和完善内容。一些具体的操作步骤和命令可以直接从 HELP.md 中复制过来。常见问题一节可以根据实际使用中遇到的问题逐步补充。
