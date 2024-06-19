@@ -4,9 +4,10 @@ import time
 from datetime import datetime
 
 # 配置部分
-FILE_EXTENSIONS = ['.py', '.properties', '.yml', '.java', '.xml']  # 支持的文件扩展名
+# FILE_EXTENSIONS = ['.py', '.properties', '.yml', '.java', '.xml']  # 支持的文件扩展名
+FILE_EXTENSIONS = ['.xml']  # 支持的文件扩展名
 FOLDER_PATH = r'E:\idea\java\springboot1.5.x\DimPlatform'  # 输入文件夹路径
-OUTPUT_FILE = 'output_{}.md'.format(datetime.now().strftime('%Y%m%d%H%M%S'))  # 输出文件名，带时间戳
+OUTPUT_FILE = 'tmp/code_{}.md'.format(datetime.now().strftime('%Y%m%d%H%M%S'))  # 输出文件名，带时间戳
 BUFFER_SIZE = 4096  # 缓冲区大小
 
 # 问题描述
@@ -39,6 +40,9 @@ def get_directory_structure(folder_path, base_path):
     structure = ["[toc]\n"]  # Markdown目录生成插件
     paths = []
     for root, dirs, files in os.walk(folder_path):
+        # 跳过 target 目录
+        if 'target' in root.split(os.sep):
+            continue
         relative_root = os.path.relpath(root, base_path)
         if relative_root == '.':
             structure.append(f"- 根目录")
@@ -74,6 +78,9 @@ def merge_files(folder_path, out_file, base_path):
 
         # 如果是文件夹，则递归处理
         if os.path.isdir(file_path):
+            # 跳过 target 目录
+            if 'target' in file_path.split(os.sep):
+                continue
             count += merge_files(file_path, out_file, base_path)
         # 如果是代码文件，则添加到txt中
         elif any(f.endswith(ext) for ext in FILE_EXTENSIONS):
