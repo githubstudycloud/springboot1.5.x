@@ -1,0 +1,83 @@
+Spring Boot 1.5.13.RELEASE 和 1.5.22.RELEASE 都是 Spring Boot 1.5.x 系列的版本，它们之间的差距主要体现在以下几个方面：
+
+1. **新特性：**
+
+   1.5.22.RELEASE 相对于 1.5.13.RELEASE 增加了一些新特性，例如：
+
+   * 支持 Spring Framework 5.0.9
+   * 支持 Elasticsearch 5.6.14
+   * 支持 Log4j2 2.11.1
+   * 支持 Apache Cassandra 3.11.4
+   * 支持 Apache Kafka 1.1.1
+   * 支持 RabbitMQ 3.7.11
+   * ...
+
+2. **Bug 修复和改进：**
+
+   1.5.22.RELEASE 修复了 1.5.13.RELEASE 中的一些 bug，并对性能和稳定性进行了一些改进。例如：
+
+   * 修复了多个安全漏洞
+   * 优化了自动配置机制
+   * 提升了日志记录的效率
+   * ...
+
+3. **依赖更新：**
+
+   1.5.22.RELEASE 更新了多个第三方库的版本，以获取最新的功能和修复。例如：
+
+   * Spring Data MongoDB 1.10.22.RELEASE
+   * Spring Data Redis 1.8.22.RELEASE
+   * Spring Security 4.2.12.RELEASE
+   * ...
+
+4. **文档更新：**
+
+   1.5.22.RELEASE 的文档进行了更新，以反映新特性、bug 修复和依赖更新。
+
+**总体而言，Spring Boot 1.5.22.RELEASE 是 1.5.x 系列的最新版本，相对于 1.5.13.RELEASE 来说，它更稳定、更安全，并提供了更多的新特性和功能。**
+
+**升级建议：**
+
+如果您正在使用 Spring Boot 1.5.13.RELEASE，强烈建议您升级到 1.5.22.RELEASE，以获取最新的安全补丁和功能改进。升级过程通常比较简单，只需更新您的依赖项配置，并将 Spring Boot 版本号更改为 1.5.22.RELEASE 即可。
+
+**参考资源：**
+
+* Spring Boot 1.5.22.RELEASE 参考指南: [https://docs.spring.io/spring-boot/docs/1.5.22.RELEASE/reference/html/](https://docs.spring.io/spring-boot/docs/1.5.22.RELEASE/reference/html/)
+* Spring Boot 1.5.x 版本变更历史: [https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-1.5-Release-Notes](https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-1.5-Release-Notes)
+
+希望这些信息能帮助您！
+Spring Boot 1.5.13.RELEASE 和 1.5.22.RELEASE 支持的中间件服务最大版本如下：
+
+| 中间件服务 | Spring Boot 1.5.13.RELEASE | Spring Boot 1.5.22.RELEASE |
+|---|---|---|
+| RabbitMQ | 3.6.12 | 3.7.11 |
+| Kafka | 0.10.2.2 | 1.1.1 |
+| Redis | 3.2.12 | 3.2.12 |
+| MongoDB | 3.2.22 | 3.4.23 |
+
+**注意：**
+
+* 这些是 Spring Boot 内置支持的最高版本。实际使用时，您可能能够与更高版本的中间件服务兼容，但可能需要手动配置或解决潜在的兼容性问题。
+* Spring Boot 1.5.x 系列已经停止维护，强烈建议您升级到更高版本，以获取最新的功能、性能改进和安全修复。
+
+**如何确定兼容性：**
+
+1. **查阅官方文档：** Spring Boot 的官方文档通常会列出支持的中间件服务版本。您可以参考以下文档：
+   * Spring Boot 1.5.13.RELEASE 参考指南: [https://docs.spring.io/spring-boot/docs/1.5.13.RELEASE/reference/html/](https://docs.spring.io/spring-boot/docs/1.5.13.RELEASE/reference/html/)
+   * Spring Boot 1.5.22.RELEASE 参考指南: [https://docs.spring.io/spring-boot/docs/1.5.22.RELEASE/reference/html/](https://docs.spring.io/spring-boot/docs/1.5.22.RELEASE/reference/html/)
+
+2. **查看 Spring Boot 依赖的 Spring Data 项目：** Spring Boot 对中间件服务的支持通常是通过 Spring Data 项目实现的。您可以查看 Spring Boot 1.5.x 依赖的 Spring Data 版本，然后查阅相应 Spring Data 项目的文档，了解其支持的中间件服务版本。
+
+3. **测试兼容性：** 如果您需要使用高于 Spring Boot 官方支持的中间件服务版本，建议您在测试环境中进行充分测试，以确保兼容性。
+
+希望这些信息对您有所帮助！
+The Docker image `confluentinc/cp-kafka:3.3.1` includes Apache Kafka version **0.11.0.3**.
+
+Confluent Platform 3.3.1 is a distribution of Apache Kafka that includes additional features and tools from Confluent. However, the underlying Kafka version in this particular image is 0.11.0.3.
+
+You can verify this information by checking the Confluent documentation for the image:
+
+* **Image Reference:** [https://docs.confluent.io/platform/current/installation/docker/image-reference.html](https://docs.confluent.io/platform/current/installation/docker/image-reference.html)
+* **Previous Versions:** [https://www.confluent.io/previous-versions/](https://www.confluent.io/previous-versions/)
+
+In the "Previous Versions" section, you can find the documentation for Confluent Platform 3.3.1, which specifies the included Kafka version.

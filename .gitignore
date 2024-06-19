@@ -30,3 +30,5 @@ replay_pid*
 /DimPlatform/DimPlatformMon/target/
 /DimPlatform/DimPlatformTest/target/
 /DimPlatform/DimPlatformTpsc/target/
+/DimPlatform/DimPlatformEdsc/target/
+/code-gpt-main/tmp/
