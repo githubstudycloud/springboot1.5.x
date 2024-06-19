@@ -22,3 +22,11 @@
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 replay_pid*
+/.idea/
+/DimPlatform/DimPlatformBds/target/
+/DimPlatform/DimPlatformCommon/target/
+/DimPlatform/DimPlatformEdsc/target/
+/DimPlatform/DimPlatformGw/target/
+/DimPlatform/DimPlatformMon/target/
+/DimPlatform/DimPlatformTest/target/
+/DimPlatform/DimPlatformTpsc/target/
