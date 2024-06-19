@@ -1,5 +1,6 @@
 package com.study.common.config;
 
+import com.study.common.dto.ErrorResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ControllerAdvice;

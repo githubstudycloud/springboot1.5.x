@@ -32,3 +32,6 @@ replay_pid*
 /DimPlatform/DimPlatformTpsc/target/
 /DimPlatform/DimPlatformEdsc/target/
 /code-gpt-main/tmp/
+/DimPlatform/DimPlatformEdsc/target/
+/DimPlatform/DimPlatformEdsc/target/
+/DimPlatform/DimPlatformEdsc/target/maven-archiver/
