@@ -4,9 +4,11 @@ import time
 from datetime import datetime
 
 # 配置部分
-# FILE_EXTENSIONS = ['.py', '.properties', '.yml', '.java', '.xml']  # 支持的文件扩展名
-FILE_EXTENSIONS = ['.xml']  # 支持的文件扩展名
-FOLDER_PATH = r'E:\idea\java\springboot1.5.x\DimPlatform'  # 输入文件夹路径
+FILE_EXTENSIONS = ['.py', '.properties', '.yml', '.java', '.xml']  # 支持的文件扩展名
+# FILE_EXTENSIONS = ['.properties', '.yml', '.java']  # 支持的文件扩展名
+# FILE_EXTENSIONS = ['.xml']  # 支持的文件扩展名
+# FOLDER_PATH = r'E:\idea\java\springboot1.5.x\DimPlatform'  # 输入文件夹路径
+FOLDER_PATH = r'E:\idea\java\springboot1.5.x\DimPlatform\DimPlatformGW'  # 输入文件夹路径
 OUTPUT_FILE = 'tmp/code_{}.md'.format(datetime.now().strftime('%Y%m%d%H%M%S'))  # 输出文件名，带时间戳
 BUFFER_SIZE = 4096  # 缓冲区大小
 
