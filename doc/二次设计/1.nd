@@ -1,0 +1,63 @@
+在 Spring Boot 1.5.22 下，静态类可以通过 `ResourceUtils` 工具类获取 resources 目录下的静态文件内容。下面是一个示例，演示如何读取一个名为 `data.txt` 的文本文件：
+
+```java
+import org.springframework.util.ResourceUtils;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+
+public class StaticFileUtil {
+
+    public static String readFileContent(String fileName) {
+        try {
+            File file = ResourceUtils.getFile("classpath:" + fileName);
+            return Files.readString(file.toPath());
+        } catch (IOException e) {
+            throw new RuntimeException("Error reading file: " + fileName, e);
+        }
+    }
+}
+```
+
+**解释：**
+
+1. **导入 `ResourceUtils`：** 引入 Spring 的 `ResourceUtils` 工具类，用于获取资源文件。
+2. **`readFileContent` 方法：**
+   - 接受文件名作为参数。
+   - 使用 `ResourceUtils.getFile("classpath:" + fileName)` 获取文件。`classpath:` 前缀表示从类路径下查找资源。
+   - 使用 `Files.readString(file.toPath())` 读取文件内容，并将其作为字符串返回。
+   - 如果读取过程中发生异常，则抛出 `RuntimeException`。
+
+**使用方法：**
+
+```java
+public class MyStaticClass {
+    public static void main(String[] args) {
+        String content = StaticFileUtil.readFileContent("data.txt");
+        System.out.println(content);
+    }
+}
+```
+
+**注意事项：**
+
+* **文件路径：** 确保 `data.txt` 文件位于 `src/main/resources` 目录下，或者在你的构建配置中将该目录添加到类路径。
+* **异常处理：** 由于文件读取可能抛出 `IOException`，因此在 `readFileContent` 方法中添加了异常处理。你可以根据实际需求修改异常处理逻辑。
+* **Spring Boot 2.x 及更高版本：** 如果你使用的是 Spring Boot 2.x 或更高版本，建议使用 `ResourceLoader` 或 `@Value` 注解来获取资源文件，这样可以更好地利用 Spring 的资源管理机制。
+
+**示例：**
+
+如果 `data.txt` 文件内容为 "Hello, world!"，那么上述代码的输出将是：
+
+```
+Hello, world!
+```
+
+**资源加载方式对比：**
+
+| 方式              | Spring Boot 1.5.22 | Spring Boot 2.x 及更高版本 |
+| ----------------- | ------------------- | -------------------------- |
+| 静态类获取资源文件 | `ResourceUtils`      | `ResourceLoader`, `@Value`   |
+| 优点              | 简单易用            | 更好的资源管理，更灵活        |
+| 缺点              | 异常处理繁琐        | 需要依赖注入                |
