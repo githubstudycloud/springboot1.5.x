@@ -1,1 +1,189 @@
-26b690ce6c56c9b51491b6d2543895332b341e4216faeed82d2619e9fdeac2b8 *JetBrainsClient-232.10203.10.jbr.win.zip
+26b690ce6c56c9b51491b6d2543895332b341e4216faeed82d2619e9fde我明白了您的需求。我会重新审查代码，修复连接池关闭的问题，并添加您请求的方法。以下是修改后的完整 `HttpClientUtil` 类代码：
+
+                                                           ```java
+                                                           import org.apache.http.HeaderElement;
+                                                           import org.apache.http.HeaderElementIterator;
+                                                           import org.apache.http.HttpEntity;
+                                                           import org.apache.http.client.config.RequestConfig;
+                                                           import org.apache.http.client.methods.CloseableHttpResponse;
+                                                           import org.apache.http.client.methods.HttpGet;
+                                                           import org.apache.http.client.methods.HttpPost;
+                                                           import org.apache.http.client.methods.HttpUriRequest;
+                                                           import org.apache.http.config.Registry;
+                                                           import org.apache.http.config.RegistryBuilder;
+                                                           import org.apache.http.conn.ConnectionKeepAliveStrategy;
+                                                           import org.apache.http.conn.socket.ConnectionSocketFactory;
+                                                           import org.apache.http.conn.socket.PlainConnectionSocketFactory;
+                                                           import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
+                                                           import org.apache.http.entity.StringEntity;
+                                                           import org.apache.http.impl.client.CloseableHttpClient;
+                                                           import org.apache.http.impl.client.HttpClients;
+                                                           import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
+                                                           import org.apache.http.message.BasicHeaderElementIterator;
+                                                           import org.apache.http.protocol.HTTP;
+                                                           import org.apache.http.ssl.SSLContexts;
+                                                           import org.apache.http.util.EntityUtils;
+
+                                                           import javax.net.ssl.SSLContext;
+                                                           import java.io.IOException;
+                                                           import java.security.KeyManagementException;
+                                                           import java.security.KeyStoreException;
+                                                           import java.security.NoSuchAlgorithmException;
+                                                           import java.util.Map;
+                                                           import java.util.concurrent.TimeUnit;
+
+                                                           public class HttpClientUtil {
+                                                               private static final CloseableHttpClient httpClient;
+                                                               private static final PoolingHttpClientConnectionManager connectionManager;
+
+                                                               static {
+                                                                   connectionManager = createConnectionManager();
+                                                                   httpClient = createHttpClient(connectionManager);
+                                                                   startIdleConnectionMonitor();
+                                                               }
+
+                                                               private static PoolingHttpClientConnectionManager createConnectionManager() {
+                                                                   try {
+                                                                       SSLContext sslContext = SSLContexts.custom()
+                                                                               .loadTrustMaterial(null, (chain, authType) -> true)
+                                                                               .build();
+
+                                                                       Registry<ConnectionSocketFactory> registry = RegistryBuilder.<ConnectionSocketFactory>create()
+                                                                               .register("http", PlainConnectionSocketFactory.getSocketFactory())
+                                                                               .register("https", new SSLConnectionSocketFactory(sslContext))
+                                                                               .build();
+
+                                                                       PoolingHttpClientConnectionManager cm = new PoolingHttpClientConnectionManager(registry);
+                                                                       cm.setMaxTotal(300);
+                                                                       cm.setDefaultMaxPerRoute(50);
+                                                                       cm.setValidateAfterInactivity(30000);
+                                                                       return cm;
+                                                                   } catch (NoSuchAlgorithmException | KeyManagementException | KeyStoreException e) {
+                                                                       throw new RuntimeException("Failed to create connection manager", e);
+                                                                   }
+                                                               }
+
+                                                               private static CloseableHttpClient createHttpClient(PoolingHttpClientConnectionManager connectionManager) {
+                                                                   RequestConfig requestConfig = RequestConfig.custom()
+                                                                           .setConnectTimeout(5000)
+                                                                           .setSocketTimeout(60000)
+                                                                           .setConnectionRequestTimeout(5000)
+                                                                           .build();
+
+                                                                   return HttpClients.custom()
+                                                                           .setConnectionManager(connectionManager)
+                                                                           .setConnectionManagerShared(true)
+                                                                           .setDefaultRequestConfig(requestConfig)
+                                                                           .setKeepAliveStrategy(keepAliveStrategy())
+                                                                           .build();
+                                                               }
+
+                                                               private static ConnectionKeepAliveStrategy keepAliveStrategy() {
+                                                                   return (response, context) -> {
+                                                                       HeaderElementIterator it = new BasicHeaderElementIterator(
+                                                                               response.headerIterator(HTTP.CONN_KEEP_ALIVE));
+                                                                       while (it.hasNext()) {
+                                                                           HeaderElement he = it.nextElement();
+                                                                           String param = he.getName();
+                                                                           String value = he.getValue();
+                                                                           if (value != null && param.equalsIgnoreCase("timeout")) {
+                                                                               return Long.parseLong(value) * 1000;
+                                                                           }
+                                                                       }
+                                                                       return 30 * 1000;
+                                                                   };
+                                                               }
+
+                                                               private static void startIdleConnectionMonitor() {
+                                                                   Thread monitorThread = new Thread(() -> {
+                                                                       try {
+                                                                           while (!Thread.currentThread().isInterrupted()) {
+                                                                               TimeUnit.SECONDS.sleep(30);
+                                                                               connectionManager.closeExpiredConnections();
+                                                                               connectionManager.closeIdleConnections(60, TimeUnit.SECONDS);
+                                                                           }
+                                                                       } catch (InterruptedException e) {
+                                                                           Thread.currentThread().interrupt();
+                                                                       }
+                                                                   });
+                                                                   monitorThread.setDaemon(true);
+                                                                   monitorThread.start();
+                                                               }
+
+                                                               public static CloseableHttpResponse getResponse(HttpUriRequest request) throws IOException {
+                                                                   return httpClient.execute(request);
+                                                               }
+
+                                                               public static String get(String url) throws IOException {
+                                                                   HttpGet httpGet = new HttpGet(url);
+                                                                   try (CloseableHttpResponse response = getResponse(httpGet)) {
+                                                                       HttpEntity entity = response.getEntity();
+                                                                       return entity != null ? EntityUtils.toString(entity) : null;
+                                                                   }
+                                                               }
+
+                                                               public static String post(String url, Map<String, String> headers, String params) throws IOException {
+                                                                   HttpPost httpPost = new HttpPost(url);
+
+                                                                   if (headers != null) {
+                                                                       for (Map.Entry<String, String> entry : headers.entrySet()) {
+                                                                           httpPost.addHeader(entry.getKey(), entry.getValue());
+                                                                       }
+                                                                   }
+
+                                                                   if (params != null) {
+                                                                       httpPost.setEntity(new StringEntity(params));
+                                                                   }
+
+                                                                   try (CloseableHttpResponse response = getResponse(httpPost)) {
+                                                                       HttpEntity entity = response.getEntity();
+                                                                       return entity != null ? EntityUtils.toString(entity) : null;
+                                                                   }
+                                                               }
+
+                                                               // 可以添加其他 HTTP 方法，如 PUT, DELETE 等
+                                                           }
+                                                           ```
+
+                                                           这个修改后的版本解决了连接池关闭的问题，主要变化包括：
+
+                                                           1. 移除了分开的 HTTP 和 HTTPS 客户端，使用单一的 `httpClient`。
+                                                           2. 将 `ConnectionManager` 设置为共享 (`setConnectionManagerShared(true)`)，这样可以防止 `HttpClient` 在关闭时关闭连接管理器。
+                                                           3. 添加了 `getResponse` 方法，用于执行 `HttpUriRequest` 并返回 `CloseableHttpResponse`。
+                                                           4. 添加了 `post` 方法，支持传入 URL、headers 和 params。
+
+                                                           使用示例：
+
+                                                           ```java
+                                                           public class HttpClientExample {
+                                                               public static void main(String[] args) {
+                                                                   try {
+                                                                       // GET 请求示例
+                                                                       String getResult = HttpClientUtil.get("https://api.example.com/data");
+                                                                       System.out.println("GET Result: " + getResult);
+
+                                                                       // POST 请求示例
+                                                                       Map<String, String> headers = new HashMap<>();
+                                                                       headers.put("Content-Type", "application/json");
+                                                                       String params = "{\"key\": \"value\"}";
+                                                                       String postResult = HttpClientUtil.post("https://api.example.com/data", headers, params);
+                                                                       System.out.println("POST Result: " + postResult);
+
+                                                                       // 使用 getResponse 方法的示例
+                                                                       HttpGet httpGet = new HttpGet("https://api.example.com/data");
+                                                                       try (CloseableHttpResponse response = HttpClientUtil.getResponse(httpGet)) {
+                                                                           System.out.println("Status Code: " + response.getStatusLine().getStatusCode());
+                                                                           HttpEntity entity = response.getEntity();
+                                                                           System.out.println("Response Body: " + EntityUtils.toString(entity));
+                                                                       }
+
+                                                                   } catch (IOException e) {
+                                                                       e.printStackTrace();
+                                                                   }
+                                                               }
+                                                           }
+                                                           ```
+
+                                                           这个版本应该能解决连接池关闭的问题，并提供了您请求的功能。请注意，这个实现仍然信任所有 SSL 证书，这只适用于开发或测试环境。在生产环境中，您应该使用适当的证书验证机制。
+
+                                                           如果您还有任何问题或需要进一步的修改，请告诉我。ac2b8 *JetBrainsClient-232.10203.10.jbr.win.zip
