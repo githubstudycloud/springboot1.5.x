@@ -1,6 +1,177 @@
 ## Prompt:
 undefined理解了,我们将简化代码,去掉监控、异步和manager部分。这里是精简后的代码:
+当然，我会为您提供一个完整的 HttpClientUtil 工具类和使用示例。这个工具类包含了之前讨论的主要优化，同时保持了使用简便性。
 
+首先是 HttpClientUtil 类：
+
+```java
+import org.apache.http.HeaderElement;
+import org.apache.http.HeaderElementIterator;
+import org.apache.http.HttpEntity;
+import org.apache.http.client.config.RequestConfig;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.config.Registry;
+import org.apache.http.config.RegistryBuilder;
+import org.apache.http.conn.ConnectionKeepAliveStrategy;
+import org.apache.http.conn.socket.ConnectionSocketFactory;
+import org.apache.http.conn.socket.PlainConnectionSocketFactory;
+import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
+import org.apache.http.message.BasicHeaderElementIterator;
+import org.apache.http.protocol.HTTP;
+import org.apache.http.ssl.SSLContexts;
+import org.apache.http.util.EntityUtils;
+
+import javax.net.ssl.SSLContext;
+import java.io.IOException;
+import java.security.KeyManagementException;
+import java.security.KeyStoreException;
+import java.security.NoSuchAlgorithmException;
+import java.util.concurrent.TimeUnit;
+
+public class HttpClientUtil {
+    private static final CloseableHttpClient httpClient;
+    private static final CloseableHttpClient httpsClient;
+    private static final PoolingHttpClientConnectionManager httpConnectionManager;
+    private static final PoolingHttpClientConnectionManager httpsConnectionManager;
+
+    static {
+        httpConnectionManager = createConnectionManager(false);
+        httpsConnectionManager = createConnectionManager(true);
+        httpClient = createHttpClient(httpConnectionManager);
+        httpsClient = createHttpClient(httpsConnectionManager);
+
+        startIdleConnectionMonitor();
+    }
+
+    private static PoolingHttpClientConnectionManager createConnectionManager(boolean forHttps) {
+        Registry<ConnectionSocketFactory> registry;
+        if (forHttps) {
+            registry = RegistryBuilder.<ConnectionSocketFactory>create()
+                    .register("http", PlainConnectionSocketFactory.getSocketFactory())
+                    .register("https", createSslSocketFactory())
+                    .build();
+        } else {
+            registry = RegistryBuilder.<ConnectionSocketFactory>create()
+                    .register("http", PlainConnectionSocketFactory.getSocketFactory())
+                    .build();
+        }
+
+        PoolingHttpClientConnectionManager connectionManager = new PoolingHttpClientConnectionManager(registry);
+        connectionManager.setMaxTotal(300);
+        connectionManager.setDefaultMaxPerRoute(50);
+        connectionManager.setValidateAfterInactivity(30000);
+        return connectionManager;
+    }
+
+    private static SSLConnectionSocketFactory createSslSocketFactory() {
+        try {
+            SSLContext sslContext = SSLContexts.custom()
+                    .loadTrustMaterial(null, (chain, authType) -> true) // 信任所有证书，仅用于示例
+                    .build();
+            return new SSLConnectionSocketFactory(sslContext);
+        } catch (NoSuchAlgorithmException | KeyManagementException | KeyStoreException e) {
+            throw new RuntimeException("Failed to create SSL socket factory", e);
+        }
+    }
+
+    private static CloseableHttpClient createHttpClient(PoolingHttpClientConnectionManager connectionManager) {
+        RequestConfig requestConfig = RequestConfig.custom()
+                .setConnectTimeout(5000)
+                .setSocketTimeout(60000)
+                .setConnectionRequestTimeout(5000)
+                .build();
+
+        return HttpClients.custom()
+                .setConnectionManager(connectionManager)
+                .setDefaultRequestConfig(requestConfig)
+                .setKeepAliveStrategy(keepAliveStrategy())
+                .build();
+    }
+
+    private static ConnectionKeepAliveStrategy keepAliveStrategy() {
+        return (response, context) -> {
+            HeaderElementIterator it = new BasicHeaderElementIterator(
+                    response.headerIterator(HTTP.CONN_KEEP_ALIVE));
+            while (it.hasNext()) {
+                HeaderElement he = it.nextElement();
+                String param = he.getName();
+                String value = he.getValue();
+                if (value != null && param.equalsIgnoreCase("timeout")) {
+                    return Long.parseLong(value) * 1000;
+                }
+            }
+            return 30 * 1000; // 默认30秒
+        };
+    }
+
+    private static void startIdleConnectionMonitor() {
+        Thread monitorThread = new Thread(() -> {
+            try {
+                while (!Thread.currentThread().isInterrupted()) {
+                    TimeUnit.SECONDS.sleep(30);
+                    httpConnectionManager.closeExpiredConnections();
+                    httpConnectionManager.closeIdleConnections(60, TimeUnit.SECONDS);
+                    httpsConnectionManager.closeExpiredConnections();
+                    httpsConnectionManager.closeIdleConnections(60, TimeUnit.SECONDS);
+                }
+            } catch (InterruptedException e) {
+                // 线程被中断时退出
+            }
+        });
+        monitorThread.setDaemon(true);
+        monitorThread.start();
+    }
+
+    public static String get(String url) throws IOException {
+        CloseableHttpClient client = url.toLowerCase().startsWith("https") ? httpsClient : httpClient;
+        HttpGet httpGet = new HttpGet(url);
+        try (CloseableHttpResponse response = client.execute(httpGet)) {
+            HttpEntity entity = response.getEntity();
+            return entity != null ? EntityUtils.toString(entity) : null;
+        }
+    }
+
+    // 可以添加其他 HTTP 方法，如 POST, PUT 等
+}
+```
+
+现在，让我们看一个使用这个工具类的示例：
+
+```java
+public class HttpClientExample {
+    public static void main(String[] args) {
+        try {
+            // 发起 HTTP GET 请求
+            String httpResult = HttpClientUtil.get("http://example.com");
+            System.out.println("HTTP Result: " + httpResult);
+
+            // 发起 HTTPS GET 请求
+            String httpsResult = HttpClientUtil.get("https://api.github.com");
+            System.out.println("HTTPS Result: " + httpsResult);
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+}
+```
+
+这个例子展示了如何使用 HttpClientUtil 发起 HTTP 和 HTTPS 请求。工具类会自动根据 URL 选择适当的客户端（HTTP 或 HTTPS）。
+
+使用这个工具类的主要优点包括：
+
+1. 简单易用：只需调用静态方法即可发起请求。
+2. 连接池管理：自动管理 HTTP 和 HTTPS 连接池，提高性能。
+3. 自动清理：后台线程会定期清理过期和空闲连接。
+4. 灵活的 KeepAlive 策略：根据服务器响应动态调整 KeepAlive 时间。
+
+需要注意的是，这个示例中的 SSL 配置信任所有证书，这只适用于开发或测试环境。在生产环境中，你应该使用适当的证书验证机制。
+
+此外，根据你的具体需求，你可能需要添加更多的 HTTP 方法（如 POST, PUT 等）和其他功能（如设置请求头、处理cookies等）到这个工具类中。
 ```java
 import org.apache.http.HeaderElement;
 import org.apache.http.HeaderElementIterator;
