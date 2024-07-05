@@ -1,5 +1,208 @@
 ## Prompt:
-undefined
+undefined理解了,我们将简化代码,去掉监控、异步和manager部分。这里是精简后的代码:
+
+```java
+import org.apache.http.HeaderElement;
+import org.apache.http.HeaderElementIterator;
+import org.apache.http.HttpRequestInterceptor;
+import org.apache.http.HttpResponseInterceptor;
+import org.apache.http.client.HttpRequestRetryHandler;
+import org.apache.http.client.config.RequestConfig;
+import org.apache.http.config.Registry;
+import org.apache.http.config.RegistryBuilder;
+import org.apache.http.conn.ConnectionKeepAliveStrategy;
+import org.apache.http.conn.socket.ConnectionSocketFactory;
+import org.apache.http.conn.socket.PlainConnectionSocketFactory;
+import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
+import org.apache.http.message.BasicHeaderElementIterator;
+import org.apache.http.protocol.HTTP;
+import org.apache.http.ssl.SSLContexts;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.scheduling.annotation.Scheduled;
+
+import javax.net.ssl.SSLContext;
+import java.security.KeyManagementException;
+import java.security.KeyStoreException;
+import java.security.NoSuchAlgorithmException;
+import java.util.concurrent.TimeUnit;
+
+@Configuration
+@EnableScheduling
+public class HttpClientConfig {
+
+    @Bean(name = "httpConnectionManager")
+    public PoolingHttpClientConnectionManager httpConnectionManager() {
+        return createConnectionManager(false);
+    }
+
+    @Bean(name = "httpsConnectionManager")
+    public PoolingHttpClientConnectionManager httpsConnectionManager() {
+        return createConnectionManager(true);
+    }
+
+    @Bean(name = "httpClient")
+    public CloseableHttpClient httpClient(
+            @Qualifier("httpConnectionManager") PoolingHttpClientConnectionManager connectionManager) {
+        return createHttpClient(connectionManager);
+    }
+
+    @Bean(name = "httpsClient")
+    public CloseableHttpClient httpsClient(
+            @Qualifier("httpsConnectionManager") PoolingHttpClientConnectionManager connectionManager) {
+        return createHttpClient(connectionManager);
+    }
+
+    private CloseableHttpClient createHttpClient(PoolingHttpClientConnectionManager connectionManager) {
+        RequestConfig requestConfig = RequestConfig.custom()
+                .setConnectTimeout(5000)
+                .setSocketTimeout(60000)
+                .setConnectionRequestTimeout(5000)
+                .build();
+
+        return HttpClients.custom()
+                .setConnectionManager(connectionManager)
+                .setDefaultRequestConfig(requestConfig)
+                .setRetryHandler(retryHandler())
+                .setKeepAliveStrategy(keepAliveStrategy())
+                .addInterceptorFirst(requestInterceptor())
+                .addInterceptorLast(responseInterceptor())
+                .build();
+    }
+
+    private PoolingHttpClientConnectionManager createConnectionManager(boolean forHttps) {
+        Registry<ConnectionSocketFactory> registry;
+        if (forHttps) {
+            registry = RegistryBuilder.<ConnectionSocketFactory>create()
+                    .register("http", PlainConnectionSocketFactory.getSocketFactory())
+                    .register("https", createSslSocketFactory())
+                    .build();
+        } else {
+            registry = RegistryBuilder.<ConnectionSocketFactory>create()
+                    .register("http", PlainConnectionSocketFactory.getSocketFactory())
+                    .build();
+        }
+
+        PoolingHttpClientConnectionManager connectionManager = new PoolingHttpClientConnectionManager(registry);
+        connectionManager.setMaxTotal(300);
+        connectionManager.setDefaultMaxPerRoute(50);
+        connectionManager.setValidateAfterInactivity(30000);
+        return connectionManager;
+    }
+
+    private SSLConnectionSocketFactory createSslSocketFactory() {
+        try {
+            SSLContext sslContext = SSLContexts.custom()
+                    .loadTrustMaterial(null, (chain, authType) -> true) // 信任所有证书，仅用于示例
+                    .build();
+            return new SSLConnectionSocketFactory(sslContext);
+        } catch (NoSuchAlgorithmException | KeyManagementException | KeyStoreException e) {
+            throw new RuntimeException("Failed to create SSL socket factory", e);
+        }
+    }
+
+    @Bean
+    public HttpRequestRetryHandler retryHandler() {
+        return (exception, executionCount, context) -> {
+            if (executionCount >= 3) {
+                return false;
+            }
+            if (exception instanceof org.apache.http.NoHttpResponseException) {
+                return true;
+            }
+            if (exception instanceof java.net.SocketException) {
+                return true;
+            }
+            return false;
+        };
+    }
+
+    @Bean
+    public HttpRequestInterceptor requestInterceptor() {
+        return (request, context) -> {
+            request.addHeader("User-Agent", "YourCustomUserAgent");
+        };
+    }
+
+    @Bean
+    public HttpResponseInterceptor responseInterceptor() {
+        return (response, context) -> {
+            // 可以在这里添加响应处理逻辑
+        };
+    }
+
+    @Bean
+    public ConnectionKeepAliveStrategy keepAliveStrategy() {
+        return (response, context) -> {
+            HeaderElementIterator it = new BasicHeaderElementIterator(
+                    response.headerIterator(HTTP.CONN_KEEP_ALIVE));
+            while (it.hasNext()) {
+                HeaderElement he = it.nextElement();
+                String param = he.getName();
+                String value = he.getValue();
+                if (value != null && param.equalsIgnoreCase("timeout")) {
+                    return Long.parseLong(value) * 1000;
+                }
+            }
+            return 30 * 1000; // 默认30秒
+        };
+    }
+
+    @Scheduled(fixedDelay = 30000) // 每30秒执行一次
+    public void closeExpiredAndIdleConnections() {
+        PoolingHttpClientConnectionManager httpConnectionManager = httpConnectionManager();
+        PoolingHttpClientConnectionManager httpsConnectionManager = httpsConnectionManager();
+
+        httpConnectionManager.closeExpiredConnections();
+        httpConnectionManager.closeIdleConnections(60, TimeUnit.SECONDS);
+
+        httpsConnectionManager.closeExpiredConnections();
+        httpsConnectionManager.closeIdleConnections(60, TimeUnit.SECONDS);
+    }
+}
+```
+
+这个简化版本包含以下主要功能:
+
+1. 分离的HTTP和HTTPS客户端,使用不同的连接管理器。
+2. 连接池管理。
+3. 定期清理过期和空闲连接的调度任务。
+4. 重试机制,处理常见的网络异常。
+5. 请求和响应拦截器,用于添加通用头部。
+6. 自定义的连接保活策略。
+
+使用这个配置,你可以在你的服务中注入和使用HttpClient:
+
+```java
+@Service
+public class YourService {
+    private final CloseableHttpClient httpClient;
+    private final CloseableHttpClient httpsClient;
+
+    @Autowired
+    public YourService(@Qualifier("httpClient") CloseableHttpClient httpClient,
+                       @Qualifier("httpsClient") CloseableHttpClient httpsClient) {
+        this.httpClient = httpClient;
+        this.httpsClient = httpsClient;
+    }
+
+    public String fetchData(String url) throws IOException {
+        CloseableHttpClient client = url.toLowerCase().startsWith("https") ? httpsClient : httpClient;
+        HttpGet httpGet = new HttpGet(url);
+        try (CloseableHttpResponse response = client.execute(httpGet)) {
+            HttpEntity entity = response.getEntity();
+            return entity != null ? EntityUtils.toString(entity) : null;
+        }
+    }
+}
+```
+
+这个简化版本保留了关键的性能优化和稳定性特性,同时减少了代码的复杂性。你可以根据需要进一步调整参数或添加其他功能。
 当然,这里是实现这些类所需的主要Maven依赖:
 
 ```xml
