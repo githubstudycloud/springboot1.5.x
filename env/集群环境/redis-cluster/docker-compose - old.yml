@@ -1,0 +1,153 @@
+version: '3'
+
+services:
+  redis-1:
+    container_name: redis-1
+    image: redis:latest
+    volumes:
+      - redis-1-data:/data
+      - ./redis-1/redis.conf:/usr/local/etc/redis/redis.conf
+      - ./redis-1/users.acl:/usr/local/etc/redis/users.acl
+    command: redis-server /usr/local/etc/redis/redis.conf
+    ports:
+      - 6371:6379
+    restart: always
+    networks:
+      redis_net:
+        ipv4_address: 172.55.0.2
+
+  redis-2:
+    container_name: redis-2
+    image: redis:latest
+    volumes:
+      - redis-2-data:/data
+      - ./redis-2/redis.conf:/usr/local/etc/redis/redis.conf
+      - ./redis-2/users.acl:/usr/local/etc/redis/users.acl
+    command: redis-server /usr/local/etc/redis/redis.conf
+    ports:
+      - 6372:6379
+    restart: always
+    networks:
+      redis_net:
+        ipv4_address: 172.55.0.3
+
+  redis-3:
+    container_name: redis-3
+    image: redis:latest
+    volumes:
+      - redis-3-data:/data
+      - ./redis-3/redis.conf:/usr/local/etc/redis/redis.conf
+      - ./redis-3/users.acl:/usr/local/etc/redis/users.acl
+    command: redis-server /usr/local/etc/redis/redis.conf
+    ports:
+      - 6373:6379
+    restart: always
+    networks:
+      redis_net:
+        ipv4_address: 172.55.0.4
+
+  redis-exporter-1:
+    container_name: redis-exporter-1
+    image: oliver006/redis_exporter:latest
+    command:
+      - '--redis.addr=redis://redis-exporter:exporter-redis123@redis-1:6379'
+      - '--redis.user=redis-exporter'
+      - '--redis.password=exporter-redis123'
+    ports:
+      - 9121:9121
+    restart: always
+    networks:
+      redis_net:
+        ipv4_address: 172.55.0.8
+
+  redis-exporter-2:
+    container_name: redis-exporter-2
+    image: oliver006/redis_exporter:latest
+    command:
+      - '--redis.addr=redis://redis-exporter:exporter-redis123@redis-2:6379'
+      - '--redis.user=redis-exporter'
+      - '--redis.password=exporter-redis123'
+    ports:
+      - 9122:9121
+    restart: always
+    networks:
+      redis_net:
+        ipv4_address: 172.55.0.9
+
+  redis-exporter-3:
+    container_name: redis-exporter-3
+    image: oliver006/redis_exporter:latest
+    command:
+      - '--redis.addr=redis://redis-exporter:exporter-redis123@redis-3:6379'
+      - '--redis.user=redis-exporter'
+      - '--redis.password=exporter-redis123'
+    ports:
+      - 9123:9121
+    restart: always
+    networks:
+      redis_net:
+        ipv4_address: 172.55.0.10
+
+  redis-commander:
+    container_name: redis-commander
+    image: rediscommander/redis-commander:latest
+    environment:
+      - REDIS_HOSTS=local:redis-1:6379:0,local:redis-2:6379:0,local:redis-3:6379:0
+      - HTTP_USER=admin
+      - HTTP_PASSWORD=admin
+    ports:
+      - 8081:8081
+    restart: always
+    networks:
+      redis_net:
+        ipv4_address: 172.55.0.5
+
+  prometheus:
+    container_name: prometheus
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - 9990:9090
+    restart: always
+    networks:
+      redis_net:
+        ipv4_address: 172.55.0.6
+
+  grafana:
+    container_name: grafana
+    image: grafana/grafana:latest
+    depends_on:
+      - prometheus
+    ports:
+      - 6000:3000
+    restart: always
+    networks:
+      redis_net:
+        ipv4_address: 172.55.0.7
+
+  redis-cluster-creator:
+    container_name: redis-cluster-creator
+    image: redis:latest
+    volumes:
+      - ./create-cluster.sh:/create-cluster.sh
+    entrypoint: /bin/sh
+    command: /create-cluster.sh
+    depends_on:
+      - redis-1
+      - redis-2
+      - redis-3
+    networks:
+      - redis_net
+
+volumes:
+  redis-1-data:
+  redis-2-data:
+  redis-3-data:
+
+networks:
+  redis_net:
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.55.0.0/16

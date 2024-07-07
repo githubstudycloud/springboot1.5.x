@@ -1,0 +1,4 @@
+user admin on >redis123 ~* +@all
+user readonly on >readonly123 ~* -@all +@read
+user redis-exporter on >exporter-redis123 +@all -@dangerous
+user twemproxy on >your_twemproxy_password +@all -@dangerous

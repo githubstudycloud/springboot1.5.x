@@ -1,0 +1,58 @@
+groups:
+- name: redis_rules
+  rules:
+  - alert: RedisInstanceDown
+    expr: redis_up == 0
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Redis instance {{ $labels.instance }} is down"
+      description: "Redis instance {{ $labels.instance }} has been down for more than 1 minute"
+
+  - alert: RedisMemoryUsageHigh
+    expr: redis_memory_used_bytes / redis_memory_max_bytes * 100 > 80
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Redis instance {{ $labels.instance }} memory usage is high"
+      description: "Redis instance {{ $labels.instance }} is using more than 80% of its maximum available memory for the last 5 minutes"
+
+  - alert: RedisRejectedConnectionsHigh
+    expr: increase(redis_rejected_connections_total[1m]) > 100
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Redis instance {{ $labels.instance }} has a high number of rejected connections"
+      description: "Redis instance {{ $labels.instance }} has rejected more than 100 connections in the last minute for the last 5 minutes"
+
+- name: twemproxy_rules
+  rules:
+  - alert: TwemproxyServerEjectsHigh
+    expr: increase(twemproxy_server_ejects[1m]) > 10
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Twemproxy has a high number of server ejects"
+      description: "Twemproxy has ejected more than 10 servers in the last minute for the last 5 minutes"
+
+  - alert: TwemproxyForwardErrorsHigh
+    expr: increase(twemproxy_forward_error[1m]) > 100
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Twemproxy has a high number of forward errors"
+      description: "Twemproxy has encountered more than 100 forward errors in the last minute for the last 5 minutes"
+
+  - alert: TwemproxyClientErrorsHigh
+    expr: increase(twemproxy_client_err[1m]) > 100
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Twemproxy has a high number of client errors"
+      description: "Twemproxy has encountered more than 100 client errors in the last minute for the last 5 minutes"
