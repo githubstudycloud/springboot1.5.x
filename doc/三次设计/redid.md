@@ -1,5 +1,66 @@
 
+您说得对,我为这个疏忽道歉。确实,Redis的 increment 操作需要一个增量值作为第二个参数。让我们修正 CacheVersionManager 类以正确实现这个功能:
 
+```java
+@Component
+public class CacheVersionManager {
+
+    @Autowired
+    private StringRedisTemplate redisTemplate;
+
+    public String getVersion(String category) {
+        String version = redisTemplate.opsForValue().get("version::" + category);
+        if (version == null) {
+            // 如果版本不存在,初始化为"1"
+            redisTemplate.opsForValue().set("version::" + category, "1");
+            return "1";
+        }
+        return version;
+    }
+
+    public long incrementVersion(String category) {
+        return redisTemplate.opsForValue().increment("version::" + category, 1L);
+    }
+
+    public long incrementVersionBy(String category, long delta) {
+        return redisTemplate.opsForValue().increment("version::" + category, delta);
+    }
+}
+```
+
+这个修正后的版本有以下改进:
+
+1. `incrementVersion` 方法现在正确地调用 Redis 的 increment 操作,增量值为 1。
+
+2. 我们添加了一个新的 `incrementVersionBy` 方法,允许指定任意的增量值。
+
+3. `getVersion` 方法现在会检查版本是否存在,如果不存在,它会初始化版本为 "1"。
+
+4. 这些方法现在返回 `long` 类型的值,表示操作后的新版本号。
+
+使用这个修正后的 `CacheVersionManager`,你可以这样调用它:
+
+```java
+@Service
+public class SomeService {
+
+    @Autowired
+    private CacheVersionManager cacheVersionManager;
+
+    public void someMethod() {
+        // 获取当前版本
+        String currentVersion = cacheVersionManager.getVersion("someCategory");
+
+        // 增加版本号
+        long newVersion = cacheVersionManager.incrementVersion("someCategory");
+
+        // 增加版本号(指定增量)
+        long newVersionCustom = cacheVersionManager.incrementVersionBy("someCategory", 5L);
+    }
+}
+```
+
+这个实现更加健壮和灵活,可以满足各种版本管理的需求。同时,它也确保了与 Redis 操作的正确性。谢谢您指出这个问题,这有助于我们改进和优化缓存管理方案。
 好的,我会根据您的要求,结合之前的讨论,为您提供一个基于Spring Boot 1.5.22的Redis连接方案,具体包括:
 
 1. 支持单机和集群模式,可通过配置文件切换。
