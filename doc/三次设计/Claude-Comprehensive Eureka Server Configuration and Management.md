@@ -1290,3 +1290,154 @@ public class EurekaServerApplication {
 
 如果还有任何疑问或需要进一步的帮助，请随时告诉我！
 
+## Prompt:
+我把服务打包到docker-compose，发布集群服务，管理页面是eureka原声的页面，而我本地启动时是我自定义的status页面，actuator的页面还是都无法访问，管理页面里面，显示集群的ip是内部定义的名字，无法直接点击访问，这些问题怎么处理
+
+## Response:
+感谢您提供的详细反馈。让我们逐一解决这些问题：
+
+1. 自定义status页面在Docker中不显示：
+
+这可能是因为Thymeleaf模板没有被正确打包到Docker镜像中。请确保：
+
+a) 在pom.xml中正确配置了Thymeleaf依赖：
+
+```xml
+Copy<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-thymeleaf</artifactId>
+</dependency>
+```
+
+b) 自定义的status.html文件位于 src/main/resources/templates/ 目录下。
+
+c) 在Dockerfile中，确保复制了整个resources目录：
+
+```Dockerfile
+CopyCOPY src/main/resources /app/resources
+```
+
+d) 在application.yml中配置Thymeleaf：
+
+```yaml
+Copyspring:
+  thymeleaf:
+    prefix: classpath:/templates/
+    suffix: .html
+```
+
+2. Actuator页面无法访问：
+
+a) 确保在application.yml中正确配置了Actuator：
+
+```yaml
+Copymanagement:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+  endpoint:
+    health:
+      show-details: always
+```
+
+b) 在SecurityConfig中允许访问Actuator端点：
+
+```java
+Copy@Override
+protected void configure(HttpSecurity http) throws Exception {
+    http
+        .csrf().disable()
+        .authorizeRequests()
+            .antMatchers("/actuator/**").permitAll()
+            .antMatchers("/", "/eureka/**").hasRole("ADMIN")
+            .anyRequest().authenticated()
+        .and()
+        .httpBasic();
+}
+```
+
+3. 集群IP显示为内部名称：
+
+这是因为Eureka使用了Docker网络中的内部主机名。要解决这个问题：
+
+a) 在docker-compose.yml中为每个服务添加自定义网络设置：
+
+```yaml
+Copyservices:
+  eureka-server1:
+    ...
+    networks:
+      eureka-net:
+        aliases:
+          - eureka-server1
+    environment:
+      - EUREKA_INSTANCE_PREFER_IP_ADDRESS=true
+      - EUREKA_INSTANCE_IP_ADDRESS=eureka-server1
+
+  eureka-server2:
+    ...
+    networks:
+      eureka-net:
+        aliases:
+          - eureka-server2
+    environment:
+      - EUREKA_INSTANCE_PREFER_IP_ADDRESS=true
+      - EUREKA_INSTANCE_IP_ADDRESS=eureka-server2
+
+  eureka-server3:
+    ...
+    networks:
+      eureka-net:
+        aliases:
+          - eureka-server3
+    environment:
+      - EUREKA_INSTANCE_PREFER_IP_ADDRESS=true
+      - EUREKA_INSTANCE_IP_ADDRESS=eureka-server3
+
+networks:
+  eureka-net:
+    driver: bridge
+```
+
+b) 在application.yml中添加以下配置：
+
+```yaml
+Copyeureka:
+  instance:
+    prefer-ip-address: true
+    ip-address: ${EUREKA_INSTANCE_IP_ADDRESS:${spring.cloud.client.ip-address}}
+```
+
+这样配置后，Eureka将使用IP地址而不是主机名来注册服务。
+
+4. 无法直接点击访问：
+
+即使配置了IP地址，由于Docker网络的隔离性，从主机直接访问容器内部IP可能仍然不可行。解决方案：
+
+a) 使用端口映射：确保在docker-compose.yml中正确映射了端口：
+
+```yaml
+Copyservices:
+  eureka-server1:
+    ...
+    ports:
+      - "8761:8761"
+  
+  eureka-server2:
+    ...
+    ports:
+      - "8762:8762"
+  
+  eureka-server3:
+    ...
+    ports:
+      - "8763:8763"
+```
+
+b) 使用主机名：如果在同一台机器上运行，可以使用localhost加端口号访问各个实例。
+
+c) 使用Nginx反向代理：在生产环境中，可以设置Nginx反向代理来路由请求到正确的Eureka实例。
+
+实施这些更改后，重新构建Docker镜像并启动容器。这应该能解决您遇到的大部分问题。如果还有任何疑问或问题，请随时告诉我！
+
