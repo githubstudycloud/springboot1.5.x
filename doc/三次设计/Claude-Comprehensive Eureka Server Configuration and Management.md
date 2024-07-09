@@ -777,3 +777,159 @@ public class EurekaServerApplication {
 
 这些更改应该解决了 `WebInvocationPrivilegeEvaluator` 找不到的问题。如果你在重新构建和运行项目后仍然遇到问题，请告诉我具体的错误信息，我会进一步协助你解决。
 
+## Prompt:
+security的web包导不进去，要声明吧😂
+
+## Response:
+非常抱歉我之前疏忽了这一点。您说得对，在 Spring Boot 1.5.22 中，我们确实需要显式声明 spring-security-web 依赖。让我们再次更新 pom.xml 文件，添加这个必要的依赖。
+
+以下是更新后的完整 pom.xml 文件：
+
+```xml
+Copy<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" 
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>eureka-server</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>eureka-server</name>
+    <description>Eureka Server for Spring Boot</description>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>1.5.22.RELEASE</version>
+        <relativePath/>
+    </parent>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+        <java.version>1.8</java.version>
+        <spring-cloud.version>Edgware.SR5</spring-cloud.version>
+    </properties>
+
+    <dependencies>
+        <!-- Eureka Server -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-eureka-server</artifactId>
+        </dependency>
+        
+        <!-- Spring Boot Web -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        
+        <!-- Thymeleaf -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-thymeleaf</artifactId>
+        </dependency>
+        
+        <!-- Actuator -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        
+        <!-- Security -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+        
+        <!-- Spring Security Web -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-web</artifactId>
+        </dependency>
+        
+        <!-- Test -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>${spring-cloud.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+```
+
+这个更新后的 pom.xml 文件现在包含了 `spring-security-web` 依赖。这应该能解决 `WebInvocationPrivilegeEvaluator` 找不到的问题。
+
+另外，为了确保一切正常工作，我们可以稍微调整一下 `SecurityConfig.java`：
+
+```java
+Copypackage com.example.eurekaserver.config;
+
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
+import org.springframework.security.config.http.SessionCreationPolicy;
+
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig extends WebSecurityConfigurerAdapter {
+
+    @Override
+    protected void configure(AuthenticationManagerBuilder auth) throws Exception {
+        auth.inMemoryAuthentication()
+            .withUser("admin").password("your_secure_password").roles("ADMIN");
+    }
+
+    @Override
+    protected void configure(HttpSecurity http) throws Exception {
+        http
+            .sessionManagement()
+                .sessionCreationPolicy(SessionCreationPolicy.NEVER)
+            .and()
+            .csrf().disable()
+            .authorizeRequests()
+                .antMatchers("/", "/eureka/**").hasRole("ADMIN")
+                .anyRequest().authenticated()
+            .and()
+            .httpBasic();
+    }
+}
+```
+
+这个配置做了以下几点修改：
+
+1. 设置了会话创建策略为 NEVER，这意味着 Spring Security 不会创建会话。
+2. 禁用了 CSRF 保护，因为 Eureka 客户端可能不会发送 CSRF token。
+3. 要求访问根路径 "/" 和 "/eureka/\*\*" 路径的请求必须具有 ADMIN 角色。
+4. 其他所有请求都需要认证。
+5. 使用 HTTP Basic 认证。
+
+这些更改应该能解决之前的问题。如果你在重新构建和运行项目后仍然遇到问题，请告诉我具体的错误信息，我会进一步协助你解决。
+
