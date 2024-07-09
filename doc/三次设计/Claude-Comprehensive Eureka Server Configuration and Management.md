@@ -391,3 +391,225 @@ ENTRYPOINT ["java","-Djava.security.egd=file:/dev/./urandom","-jar","/app.jar"]
 
 这个设计适合 Spring Boot 1.5.22 版本，并为后续的扩展和改进留有余地。您可以根据具体需求进一步调整和扩展这个基础设计。
 
+## Prompt:
+cancellinstance方法在springboot1.5找不到，请修改，dockerfile看不出来可以集群部署，互相注册成集群没有指定东八区，没有对java8和java8+指定调试启动，虽然我应该只用8，但后续可能升级，添加一个固定的登录功能，在java里配置账号密码，防止未经授权访问
+
+## Response:
+您提出了非常好的观点，我为之前的疏忽表示歉意。我会根据您的要求进行修改和补充。以下是更新后的设计：
+
+1. 修改 EurekaAdminController.java
+
+```java
+Copypackage com.example.eurekaserver.controller;
+
+import com.netflix.eureka.registry.PeerAwareInstanceRegistry;
+import com.netflix.eureka.registry.PeerAwareInstanceRegistryImpl;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cloud.netflix.eureka.server.EurekaServerConfigBean;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+public class EurekaAdminController {
+
+    @Autowired
+    private PeerAwareInstanceRegistry registry;
+
+    @Autowired
+    private EurekaServerConfigBean serverConfig;
+
+    @PostMapping("/eureka/admin/deregister")
+    public String deregisterInstance(@RequestParam String appName, @RequestParam String instanceId) {
+        if (registry instanceof PeerAwareInstanceRegistryImpl) {
+            PeerAwareInstanceRegistryImpl peerRegistry = (PeerAwareInstanceRegistryImpl) registry;
+            peerRegistry.cancel(appName, instanceId, false);
+            return "Instance deregistered successfully";
+        }
+        return "Deregistration failed";
+    }
+}
+```
+
+2. 更新 Dockerfile 以支持集群部署和时区设置
+
+```dockerfile
+CopyFROM openjdk:8-jdk-alpine
+
+# 设置时区
+RUN apk add --no-cache tzdata
+ENV TZ=Asia/Shanghai
+
+VOLUME /tmp
+ARG JAR_FILE=target/*.jar
+COPY ${JAR_FILE} app.jar
+
+# 添加健康检查
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+  CMD wget --quiet --tries=1 --spider http://localhost:8761/actuator/health || exit 1
+
+# 设置启动命令，支持 Java 8 和更高版本，并添加调试选项
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -Djava.security.egd=file:/dev/./urandom -jar /app.jar"]
+```
+
+3. 添加固定的登录功能（在 Java 代码中配置账号密码）
+
+创建一个新的 SecurityConfig.java 文件：
+
+```java
+Copypackage com.example.eurekaserver.config;
+
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
+
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig extends WebSecurityConfigurerAdapter {
+
+    @Override
+    protected void configure(AuthenticationManagerBuilder auth) throws Exception {
+        auth.inMemoryAuthentication()
+            .withUser("admin").password("your_secure_password").roles("ADMIN");
+    }
+
+    @Override
+    protected void configure(HttpSecurity http) throws Exception {
+        http
+            .csrf().disable()
+            .authorizeRequests()
+                .antMatchers("/eureka/**").hasRole("ADMIN")
+                .anyRequest().authenticated()
+            .and()
+            .httpBasic();
+    }
+}
+```
+
+4. 更新 application.yml 以支持集群部署
+
+```yaml
+Copyserver:
+  port: 8761
+
+spring:
+  application:
+    name: eureka-server
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:default}
+
+eureka:
+  instance:
+    hostname: ${EUREKA_INSTANCE_HOSTNAME:localhost}
+  client:
+    registerWithEureka: true
+    fetchRegistry: true
+    serviceUrl:
+      defaultZone: ${EUREKA_SERVER_URL:http://localhost:8761/eureka/}
+  server:
+    enableSelfPreservation: true
+    evictionIntervalTimerInMs: 60000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+logging:
+  config: classpath:logback-spring.xml
+
+---
+spring:
+  profiles: peer1
+eureka:
+  instance:
+    hostname: peer1
+  client:
+    serviceUrl:
+      defaultZone: http://peer2:8762/eureka/,http://peer3:8763/eureka/
+
+---
+spring:
+  profiles: peer2
+server:
+  port: 8762
+eureka:
+  instance:
+    hostname: peer2
+  client:
+    serviceUrl:
+      defaultZone: http://peer1:8761/eureka/,http://peer3:8763/eureka/
+
+---
+spring:
+  profiles: peer3
+server:
+  port: 8763
+eureka:
+  instance:
+    hostname: peer3
+  client:
+    serviceUrl:
+      defaultZone: http://peer1:8761/eureka/,http://peer2:8762/eureka/
+```
+
+5. 创建一个 docker-compose.yml 文件以便于部署 Eureka 集群
+
+```yaml
+Copyversion: '3'
+services:
+  eureka-server1:
+    build: .
+    ports:
+      - "8761:8761"
+    environment:
+      - SPRING_PROFILES_ACTIVE=peer1
+      - EUREKA_INSTANCE_HOSTNAME=eureka-server1
+      - EUREKA_SERVER_URL=http://eureka-server2:8762/eureka/,http://eureka-server3:8763/eureka/
+      - JAVA_OPTS=-Xmx512m -Xms256m -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005
+    networks:
+      - eureka-net
+
+  eureka-server2:
+    build: .
+    ports:
+      - "8762:8762"
+    environment:
+      - SPRING_PROFILES_ACTIVE=peer2
+      - EUREKA_INSTANCE_HOSTNAME=eureka-server2
+      - EUREKA_SERVER_URL=http://eureka-server1:8761/eureka/,http://eureka-server3:8763/eureka/
+      - JAVA_OPTS=-Xmx512m -Xms256m -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5006
+    networks:
+      - eureka-net
+
+  eureka-server3:
+    build: .
+    ports:
+      - "8763:8763"
+    environment:
+      - SPRING_PROFILES_ACTIVE=peer3
+      - EUREKA_INSTANCE_HOSTNAME=eureka-server3
+      - EUREKA_SERVER_URL=http://eureka-server1:8761/eureka/,http://eureka-server2:8762/eureka/
+      - JAVA_OPTS=-Xmx512m -Xms256m -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5007
+    networks:
+      - eureka-net
+
+networks:
+  eureka-net:
+    driver: bridge
+```
+
+这些修改解决了您提出的所有问题：
+
+1. 使用了适合 Spring Boot 1.5.22 的方法来注销实例。
+2. Dockerfile 现在支持集群部署，设置了东八区时间。
+3. 添加了 JAVA\_OPTS 环境变量，支持 Java 8 及以上版本的调试启动。
+4. 在 Java 代码中配置了固定的登录账号和密码。
+5. application.yml 文件现在支持集群配置。
+6. 添加了 docker-compose.yml 文件，方便部署 Eureka 集群。
+
+这个设计现在更加健壮和灵活，可以满足您的需求，并为未来的升级留有余地。如果您还有任何其他需求或疑问，请随时告诉我。
+
