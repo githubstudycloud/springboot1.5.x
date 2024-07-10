@@ -1,8 +1,6 @@
-为了确保 Redis 集群正常工作，需要开放 Redis 集群的总线端口（默认是 16379）。此外，如果希望从外部访问 Redis 集群，还需要确保相应的端口映射和防火墙配置正确。
+了解了你的需求后，如果你从外部 Java 应用程序访问 Redis 集群，应该使用宿主机的 IP 地址和端口，而不是 Docker 容器的内部名称。以下是一个完整的解决方案，确保 Redis 集群节点和总线端口都正确映射，并且可以从外部访问。
 
-### 更新 `docker-compose.yml`
-
-以下是更新后的 `docker-compose.yml` 文件，包括开放 Redis 集群总线端口和设置外部访问：
+### 更新的 `docker-compose.yml`
 
 ```yaml
 version: '3.8'
@@ -85,9 +83,9 @@ services:
       - redis-cluster-net
 ```
 
-### 更新 Redis 配置文件
+### Redis 配置文件
 
-确保每个 Redis 配置文件（例如 `redis-node-1.conf`）中包含以下内容，特别是指定集群总线端口：
+确保每个 Redis 配置文件（例如 `redis-node-1.conf`）中包含以下内容：
 
 ```conf
 port 6379
@@ -95,12 +93,14 @@ cluster-enabled yes
 cluster-config-file nodes.conf
 cluster-node-timeout 5000
 appendonly yes
-cluster-announce-ip your_public_ip_or_docker_host_ip
+cluster-announce-ip your_host_ip
 cluster-announce-port 6379
 cluster-announce-bus-port 16379
 ```
 
-### 启动和初始化集群
+`your_host_ip` 应替换为实际的宿主机 IP 地址。
+
+### 创建和启动集群
 
 1. **启动 Redis 容器**：
 
@@ -121,12 +121,8 @@ cluster-announce-bus-port 16379
    在容器内运行以下命令配置 Redis 集群：
 
    ```sh
-   redis-cli --cluster create 127.0.0.1:6379 127.0.0.1:6380 127.0.0.1:6381 127.0.0.1:6382 127.0.0.1:6383 127.0.0.1:6384 --cluster-replicas 0
+   redis-cli --cluster create your_host_ip:6379 your_host_ip:6380 your_host_ip:6381 your_host_ip:6382 your_host_ip:6383 your_host_ip:6384 --cluster-replicas 0
    ```
-
-### 确保外部访问
-
-如果需要从外部访问 Redis 集群，请确保防火墙规则允许访问相应的端口（例如 6379 和 16379）。你可能需要在云提供商的控制面板或服务器防火墙中配置这些规则。
 
 ### Java 连接配置
 
@@ -162,8 +158,14 @@ public class RedisClusterConfig {
     @Bean
     public RedisClusterConfiguration redisClusterConfiguration() {
         RedisClusterConfiguration clusterConfig = new RedisClusterConfiguration(
-                Arrays.asList("your_public_ip_or_docker_host_ip:6379", "your_public_ip_or_docker_host_ip:6380", "your_public_ip_or_docker_host_ip:6381",
-                              "your_public_ip_or_docker_host_ip:6382", "your_public_ip_or_docker_host_ip:6383", "your_public_ip_or_docker_host_ip:6384")
+                Arrays.asList(
+                        "your_host_ip:6379",
+                        "your_host_ip:6380",
+                        "your_host_ip:6381",
+                        "your_host_ip:6382",
+                        "your_host_ip:6383",
+                        "your_host_ip:6384"
+                )
         );
         clusterConfig.setMaxRedirects(10);
         return clusterConfig;
@@ -186,4 +188,6 @@ public class RedisClusterConfig {
 }
 ```
 
-确保在 `redisClusterConfiguration` 中使用你的公共 IP 或 Docker 主机 IP。这样可以确保你的应用能够正确连接到 Redis 集群。
+### 总结
+
+通过在 Redis 配置文件中使用宿主机 IP 地址，并确保端口映射正确，你可以确保 Redis 集群中的节点可以互相通信，同时外部的 Java 应用程序可以通过宿主机的 IP 地址和端口访问 Redis 集群。这样配置后，你的 Java 应用程序将能够正确连接到 Redis 集群并进行操作。
