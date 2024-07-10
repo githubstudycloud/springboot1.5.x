@@ -2716,3 +2716,176 @@ docker-compose up -d
 
 这些步骤应该能够成功创建一个带有静态IP地址的自定义网络,并让你的Eureka服务器在这个网络中正确运行。如果还有任何问题,请告诉我具体的错误信息。
 
+## Prompt:
+用可固定ip还是不行，请给我完整的配置文件和docker-compose文件
+
+## Response:
+我理解您遇到了困难。让我们重新梳理一下，提供一个完整的、可工作的配置。我们将使用Docker的默认网络，不再尝试固定IP，这样可以避免一些潜在的网络问题。
+
+1. application.yml (对所有Eureka服务器都相同):
+
+```yaml
+Copyspring:
+  application:
+    name: eureka-server
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:default}
+
+server:
+  port: ${SERVER_PORT:8761}
+
+eureka:
+  instance:
+    hostname: ${EUREKA_INSTANCE_HOSTNAME:localhost}
+    preferIpAddress: true
+  client:
+    registerWithEureka: true
+    fetchRegistry: true
+    serviceUrl:
+      defaultZone: ${EUREKA_SERVER_URL:http://localhost:8761/eureka/}
+  server:
+    enable-self-preservation: false
+    eviction-interval-timer-in-ms: 5000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.netflix.eureka: DEBUG
+    com.netflix.discovery: DEBUG
+```
+
+2. docker-compose.yml:
+
+```yaml
+Copyversion: '3'
+services:
+  eureka-server1:
+    build: .
+    ports:
+      - "8761:8761"
+    environment:
+      - SPRING_PROFILES_ACTIVE=peer1
+      - EUREKA_INSTANCE_HOSTNAME=eureka-server1
+      - SERVER_PORT=8761
+      - EUREKA_SERVER_URL=http://eureka-server2:8762/eureka/,http://eureka-server3:8763/eureka/
+
+  eureka-server2:
+    build: .
+    ports:
+      - "8762:8762"
+    environment:
+      - SPRING_PROFILES_ACTIVE=peer2
+      - EUREKA_INSTANCE_HOSTNAME=eureka-server2
+      - SERVER_PORT=8762
+      - EUREKA_SERVER_URL=http://eureka-server1:8761/eureka/,http://eureka-server3:8763/eureka/
+
+  eureka-server3:
+    build: .
+    ports:
+      - "8763:8763"
+    environment:
+      - SPRING_PROFILES_ACTIVE=peer3
+      - EUREKA_INSTANCE_HOSTNAME=eureka-server3
+      - SERVER_PORT=8763
+      - EUREKA_SERVER_URL=http://eureka-server1:8761/eureka/,http://eureka-server2:8762/eureka/
+```
+
+3. Dockerfile:
+
+```dockerfile
+CopyFROM openjdk:8-jdk-alpine
+VOLUME /tmp
+ARG JAR_FILE=target/*.jar
+COPY ${JAR_FILE} app.jar
+ENTRYPOINT ["java","-Djava.security.egd=file:/dev/./urandom","-jar","/app.jar"]
+```
+
+4. 主应用类 (EurekaServerApplication.java):
+
+```java
+Copyimport org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cloud.netflix.eureka.server.EnableEurekaServer;
+
+@SpringBootApplication
+@EnableEurekaServer
+public class EurekaServerApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(EurekaServerApplication.class, args);
+    }
+}
+```
+
+使用这些配置：
+
+1. 确保你的项目结构如下：
+
+```
+Copyyour-project/
+├── src/
+│   └── main/
+│       ├── java/
+│       │   └── com/
+│       │       └── yourcompany/
+│       │           └── EurekaServerApplication.java
+│       └── resources/
+│           └── application.yml
+├── Dockerfile
+├── docker-compose.yml
+└── pom.xml
+```
+
+2. 在 pom.xml 中确保有以下依赖：
+
+```xml
+Copy<dependencies>
+    <dependency>
+        <groupId>org.springframework.cloud</groupId>
+        <artifactId>spring-cloud-starter-netflix-eureka-server</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+</dependencies>
+```
+
+3. 构建你的项目：
+
+```bash
+Copymvn clean package
+```
+
+4. 使用 Docker Compose 启动服务：
+
+```bash
+Copydocker-compose up --build
+```
+
+这个配置应该能够正常工作，创建一个由三个 Eureka 服务器组成的集群。每个服务器都会注册到其他两个服务器。
+
+如果你需要从外部访问这个 Eureka 集群，假设你的 Docker 主机 IP 是 192.168.1.100，那么客户端可以使用以下配置：
+
+```yaml
+Copyeureka:
+  client:
+    serviceUrl:
+      defaultZone: http://192.168.1.100:8761/eureka/,http://192.168.1.100:8762/eureka/,http://192.168.1.100:8763/eureka/
+```
+
+这个配置避免了固定 IP 地址的问题，使用了 Docker 的服务发现功能。如果仍然遇到问题，请查看 Docker 容器的日志以获取更多信息：
+
+```bash
+Copydocker-compose logs
+```
+
+如果还有任何问题，请提供具体的错误信息，我会进一步协助你。
+
