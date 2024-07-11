@@ -115,6 +115,7 @@ docker-compose up -d
 
 ```
 docker exec -it redis-node-1 redis-cli --cluster create YOUR_HOST_IP:6379 YOUR_HOST_IP:6380 YOUR_HOST_IP:6381 YOUR_HOST_IP:6382 YOUR_HOST_IP:6383 YOUR_HOST_IP:6384 --cluster-replicas 0 -a 123456
+docker exec -it redis-node-1 redis-cli --cluster create 192.168.80.139:6379 192.168.80.139:6380 192.168.80.139:6381 192.168.80.139:6382 192.168.80.139:6383 192.168.80.139:6384 --cluster-replicas 1 -a 123456
 ```
 
 这种方法避免了使用环境变量，直接在每个 Redis 配置文件中设置正确的端口值。这样应该能解决之前遇到的 "参数不能被转换 int" 的问题。
