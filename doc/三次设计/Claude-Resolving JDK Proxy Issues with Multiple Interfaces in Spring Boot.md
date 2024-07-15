@@ -371,3 +371,169 @@ public void someMethod() {
 
 如果需要支持更多类型的缓存刷新,我们可以在CacheRefreshConsumerService中添加更多的条件判断,或者采用策略模式来处理不同类型的刷新请求。
 
+## Prompt:
+这个里面的测试类的mock.open在springboot1.5没有，我改成init，但报无法解析org.junit.platform，请修改这3个测试类让它在springboot1.5下可以运行
+
+## Response:
+抱歉这个疏忽。在Spring Boot 1.5中,我们使用的是JUnit 4而不是JUnit 5。让我为您修改这三个测试类,使它们能在Spring Boot 1.5下运行。
+
+1. CacheRefreshApplicationTests.java
+
+```java
+Copypackage com.example.cacherefresh;
+
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.junit4.SpringRunner;
+
+@RunWith(SpringRunner.class)
+@SpringBootTest
+public class CacheRefreshApplicationTests {
+
+    @Test
+    public void contextLoads() {
+    }
+
+}
+```
+
+2. CacheRefreshServiceTest.java
+
+```java
+Copypackage com.example.cacherefresh.service;
+
+import com.example.cacherefresh.model.CacheRefreshRequest;
+import com.example.cacherefresh.repository.CacheRepository;
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.runners.MockitoJUnitRunner;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
+
+import static org.mockito.Mockito.*;
+
+@RunWith(MockitoJUnitRunner.class)
+public class CacheRefreshServiceTest {
+
+    @Mock
+    private CacheRepository cacheRepository;
+
+    @Mock
+    private RabbitTemplate rabbitTemplate;
+
+    @InjectMocks
+    private CacheRefreshServiceImpl cacheRefreshService;
+
+    @Before
+    public void setUp() {
+        // 不需要显式初始化Mockito注解,MockitoJUnitRunner会处理
+    }
+
+    @Test
+    public void testRefreshCache() {
+        CacheRefreshRequest request = new CacheRefreshRequest("testKey", "TEST", 1);
+        cacheRefreshService.refreshCache(request);
+        verify(rabbitTemplate, times(1)).convertAndSend("cache-refresh-queue", request);
+    }
+
+    @Test
+    public void testGetCacheValue() {
+        when(cacheRepository.getValue("testKey")).thenReturn("testValue");
+        String result = cacheRefreshService.getCacheValue("testKey");
+        verify(cacheRepository, times(1)).getValue("testKey");
+        assert "testValue".equals(result);
+    }
+
+    @Test
+    public void testSetCacheValue() {
+        cacheRefreshService.setCacheValue("testKey", "testValue");
+        verify(cacheRepository, times(1)).setValue(eq("testKey"), eq("testValue"), anyLong());
+    }
+}
+```
+
+3. CacheRepositoryTest.java
+
+```java
+Copypackage com.example.cacherefresh.repository;
+
+import com.example.cacherefresh.model.CacheMetadata;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.runners.MockitoJUnitRunner;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
+
+import static org.mockito.Mockito.*;
+
+@RunWith(MockitoJUnitRunner.class)
+public class CacheRepositoryTest {
+
+    @Mock
+    private RedisTemplate<String, Object> redisTemplate;
+
+    @Mock
+    private ObjectMapper objectMapper;
+
+    @Mock
+    private ValueOperations<String, Object> valueOperations;
+
+    @InjectMocks
+    private CacheRepository cacheRepository;
+
+    @Before
+    public void setUp() {
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+    }
+
+    @Test
+    public void testSetValue() {
+        cacheRepository.setValue("testKey", "testValue", 3600);
+        verify(valueOperations, times(1)).set(eq("testKey"), eq("testValue"), eq(3600L), eq(java.util.concurrent.TimeUnit.SECONDS));
+    }
+
+    @Test
+    public void testGetValue() {
+        when(valueOperations.get("testKey")).thenReturn("testValue");
+        Object result = cacheRepository.getValue("testKey");
+        verify(valueOperations, times(1)).get("testKey");
+        assert "testValue".equals(result);
+    }
+
+    @Test
+    public void testSetMetadata() throws Exception {
+        CacheMetadata metadata = new CacheMetadata();
+        when(objectMapper.writeValueAsString(metadata)).thenReturn("{}");
+        cacheRepository.setMetadata("testKey", metadata);
+        verify(valueOperations, times(1)).set(eq("testKey:metadata"), eq("{}"));
+    }
+
+    @Test
+    public void testGetMetadata() throws Exception {
+        CacheMetadata metadata = new CacheMetadata();
+        when(valueOperations.get("testKey:metadata")).thenReturn("{}");
+        when(objectMapper.readValue("{}", CacheMetadata.class)).thenReturn(metadata);
+        CacheMetadata result = cacheRepository.getMetadata("testKey");
+        verify(valueOperations, times(1)).get("testKey:metadata");
+        assert result != null;
+    }
+}
+```
+
+主要的变更包括：
+
+1. 使用 `@RunWith(SpringRunner.class)` 或 `@RunWith(MockitoJUnitRunner.class)` 替代 JUnit 5 的注解。
+2. 使用 `@Before` 替代 `@BeforeEach`。
+3. 使用 `@Test` 而不是 `@Test` 后面的 `void`。
+4. 移除了 `MockitoAnnotations.openMocks(this)`，因为 `MockitoJUnitRunner` 会自动处理这个。
+5. 在 `pom.xml` 中，确保您使用的是适合 Spring Boot 1.5 的依赖版本。
+
+这些修改应该能让测试类在 Spring Boot 1.5 环境下正常运行。如果您在运行这些测试时仍然遇到问题，请告诉我具体的错误信息，我会进一步协助您解决。
+
