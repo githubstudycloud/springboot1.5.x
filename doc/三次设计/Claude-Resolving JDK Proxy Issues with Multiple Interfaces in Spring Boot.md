@@ -537,3 +537,904 @@ public class CacheRepositoryTest {
 
 这些修改应该能让测试类在 Spring Boot 1.5 环境下正常运行。如果您在运行这些测试时仍然遇到问题，请告诉我具体的错误信息，我会进一步协助您解决。
 
+## Prompt:
+对于生成key和元数据哪几个类，要怎么使用起来，请结合例子说明
+
+## Response:
+好的,我来详细解释一下如何使用key生成和元数据管理的相关类,并结合例子说明。
+
+主要涉及的类有:
+
+1. CacheKeyGenerator
+2. CacheMetadata
+3. CacheRepository
+
+让我们通过一个用户缓存的例子来说明这些类的使用:
+
+1. CacheKeyGenerator
+
+这个类用于生成统一格式的缓存key。
+
+```java
+Copy@Component
+public class CacheKeyGenerator {
+    private static final String SEPARATOR = ":";
+
+    public String generateKey(String... parts) {
+        return String.join(SEPARATOR, parts);
+    }
+
+    public String generateUserKey(Long userId) {
+        return generateKey("user", userId.toString());
+    }
+}
+```
+
+2. CacheMetadata
+
+这个类用于存储缓存的元数据。
+
+```java
+Copypublic class CacheMetadata {
+    private Instant lastUpdateTime;
+    private Instant expirationTime;
+    private long ttl;
+    private String dataSource;
+    
+    // 构造函数、getters和setters
+}
+```
+
+3. CacheRepository
+
+这个类负责与Redis交互,包括存储和获取缓存数据及其元数据。
+
+```java
+Copy@Repository
+public class CacheRepository {
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+    
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    public void setValue(String key, Object value, long ttl) {
+        redisTemplate.opsForValue().set(key, value, ttl, TimeUnit.SECONDS);
+    }
+
+    public Object getValue(String key) {
+        return redisTemplate.opsForValue().get(key);
+    }
+
+    public void setMetadata(String key, CacheMetadata metadata) {
+        try {
+            String metadataJson = objectMapper.writeValueAsString(metadata);
+            redisTemplate.opsForValue().set(key + ":metadata", metadataJson);
+        } catch (Exception e) {
+            throw new RuntimeException("Error serializing cache metadata", e);
+        }
+    }
+
+    public CacheMetadata getMetadata(String key) {
+        try {
+            String metadataJson = (String) redisTemplate.opsForValue().get(key + ":metadata");
+            if (metadataJson != null) {
+                return objectMapper.readValue(metadataJson, CacheMetadata.class);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Error deserializing cache metadata", e);
+        }
+        return null;
+    }
+}
+```
+
+现在,让我们看一个实际使用这些类的例子。假设我们有一个UserService,需要缓存用户信息:
+
+```java
+Copy@Service
+public class UserService {
+    @Autowired
+    private CacheKeyGenerator keyGenerator;
+    
+    @Autowired
+    private CacheRepository cacheRepository;
+    
+    @Autowired
+    private UserRepository userRepository;  // 假设这是访问数据库的repository
+
+    public User getUser(Long userId) {
+        String cacheKey = keyGenerator.generateUserKey(userId);
+        User cachedUser = (User) cacheRepository.getValue(cacheKey);
+        
+        if (cachedUser == null) {
+            // 缓存未命中,从数据库获取
+            User user = userRepository.findById(userId);
+            if (user != null) {
+                // 更新缓存
+                cacheRepository.setValue(cacheKey, user, 3600); // 缓存1小时
+                
+                // 更新元数据
+                CacheMetadata metadata = new CacheMetadata();
+                metadata.setLastUpdateTime(Instant.now());
+                metadata.setExpirationTime(Instant.now().plusSeconds(3600));
+                metadata.setTtl(3600);
+                metadata.setDataSource("DATABASE");
+                cacheRepository.setMetadata(cacheKey, metadata);
+            }
+            return user;
+        } else {
+            // 缓存命中
+            CacheMetadata metadata = cacheRepository.getMetadata(cacheKey);
+            if (metadata != null) {
+                // 可以根据元数据做一些决策,比如检查是否需要刷新
+                if (metadata.getExpirationTime().isBefore(Instant.now())) {
+                    // 缓存已过期,触发异步刷新
+                    asyncRefreshCache(userId);
+                }
+            }
+            return cachedUser;
+        }
+    }
+
+    @Async
+    public void asyncRefreshCache(Long userId) {
+        // 实现异步刷新缓存的逻辑
+    }
+}
+```
+
+在这个例子中:
+
+1. 我们使用`CacheKeyGenerator`来生成一致的缓存key。
+2. 使用`CacheRepository`来存储和获取缓存的值和元数据。
+3. 当缓存未命中时,我们不仅缓存了用户数据,还存储了相关的元数据。
+4. 当缓存命中时,我们检查元数据来决定是否需要刷新缓存。
+
+这种方式允许我们:
+
+* 统一管理缓存key的生成
+* 存储和利用缓存的元数据
+* 实现更复杂的缓存策略,如异步刷新
+* 方便地监控和管理缓存的状态
+
+通过这种结构,我们可以轻松地扩展到其他类型的数据缓存,只需要在`CacheKeyGenerator`中添加新的key生成方法,并在相应的service中实现类似的缓存逻辑即可。
+
+## Prompt:
+我还不太能理解，请更详细些说明使用方法
+
+## Response:
+我理解您需要更详细的解释。让我们一步步来，通过一个更具体的例子来说明如何使用这些类。
+
+我们将以用户信息缓存为例，详细说明整个流程。
+
+1. 首先，让我们定义一个简单的User类：
+
+```java
+Copypublic class User {
+    private Long id;
+    private String username;
+    private String email;
+
+    // 构造函数、getters和setters
+}
+```
+
+2. CacheKeyGenerator 的使用：
+
+```java
+Copy@Component
+public class CacheKeyGenerator {
+    private static final String SEPARATOR = ":";
+
+    public String generateKey(String... parts) {
+        return String.join(SEPARATOR, parts);
+    }
+
+    public String generateUserKey(Long userId) {
+        return generateKey("user", userId.toString());
+    }
+}
+```
+
+3. CacheMetadata 的定义：
+
+```java
+Copypublic class CacheMetadata {
+    private Instant lastUpdateTime;
+    private Instant expirationTime;
+    private long ttl;
+    private String dataSource;
+
+    // 构造函数、getters和setters
+}
+```
+
+4. CacheRepository 的实现：
+
+```java
+Copy@Repository
+public class CacheRepository {
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+    
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    public void setValue(String key, Object value, long ttl) {
+        redisTemplate.opsForValue().set(key, value, ttl, TimeUnit.SECONDS);
+    }
+
+    public Object getValue(String key) {
+        return redisTemplate.opsForValue().get(key);
+    }
+
+    public void setMetadata(String key, CacheMetadata metadata) {
+        try {
+            String metadataJson = objectMapper.writeValueAsString(metadata);
+            redisTemplate.opsForValue().set(key + ":metadata", metadataJson);
+        } catch (Exception e) {
+            throw new RuntimeException("Error serializing cache metadata", e);
+        }
+    }
+
+    public CacheMetadata getMetadata(String key) {
+        try {
+            String metadataJson = (String) redisTemplate.opsForValue().get(key + ":metadata");
+            if (metadataJson != null) {
+                return objectMapper.readValue(metadataJson, CacheMetadata.class);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Error deserializing cache metadata", e);
+        }
+        return null;
+    }
+}
+```
+
+5. 现在，让我们创建一个UserService来使用这些组件：
+
+```java
+Copy@Service
+public class UserService {
+    @Autowired
+    private CacheKeyGenerator keyGenerator;
+    
+    @Autowired
+    private CacheRepository cacheRepository;
+    
+    @Autowired
+    private UserRepository userRepository;  // 假设这是访问数据库的repository
+
+    public User getUser(Long userId) {
+        // 步骤1：生成缓存key
+        String cacheKey = keyGenerator.generateUserKey(userId);
+        
+        // 步骤2：尝试从缓存获取用户
+        User cachedUser = (User) cacheRepository.getValue(cacheKey);
+        
+        if (cachedUser == null) {
+            // 步骤3：缓存未命中，从数据库获取
+            User user = userRepository.findById(userId);
+            if (user != null) {
+                // 步骤4：更新缓存
+                cacheRepository.setValue(cacheKey, user, 3600); // 缓存1小时
+                
+                // 步骤5：更新元数据
+                CacheMetadata metadata = new CacheMetadata();
+                metadata.setLastUpdateTime(Instant.now());
+                metadata.setExpirationTime(Instant.now().plusSeconds(3600));
+                metadata.setTtl(3600);
+                metadata.setDataSource("DATABASE");
+                cacheRepository.setMetadata(cacheKey, metadata);
+            }
+            return user;
+        } else {
+            // 步骤6：缓存命中，检查元数据
+            CacheMetadata metadata = cacheRepository.getMetadata(cacheKey);
+            if (metadata != null && metadata.getExpirationTime().isBefore(Instant.now())) {
+                // 步骤7：如果缓存已过期，触发异步刷新
+                asyncRefreshCache(userId);
+            }
+            return cachedUser;
+        }
+    }
+
+    @Async
+    public void asyncRefreshCache(Long userId) {
+        // 步骤8：实现异步刷新缓存的逻辑
+        User freshUser = userRepository.findById(userId);
+        if (freshUser != null) {
+            String cacheKey = keyGenerator.generateUserKey(userId);
+            cacheRepository.setValue(cacheKey, freshUser, 3600);
+            
+            CacheMetadata metadata = new CacheMetadata();
+            metadata.setLastUpdateTime(Instant.now());
+            metadata.setExpirationTime(Instant.now().plusSeconds(3600));
+            metadata.setTtl(3600);
+            metadata.setDataSource("ASYNC_REFRESH");
+            cacheRepository.setMetadata(cacheKey, metadata);
+        }
+    }
+}
+```
+
+使用步骤说明：
+
+1. 生成缓存key：使用`CacheKeyGenerator`生成一个唯一的key来标识用户缓存。
+2. 尝试获取缓存：使用`CacheRepository`尝试从Redis获取缓存的用户数据。
+3. 处理缓存未命中：如果缓存中没有数据，从数据库获取用户信息。
+4. 更新缓存：将从数据库获取的用户信息存入缓存，设置1小时的过期时间。
+5. 更新元数据：创建并存储与该缓存相关的元数据，包括最后更新时间、过期时间等。
+6. 处理缓存命中：如果缓存中有数据，获取并检查相关的元数据。
+7. 检查过期状态：如果缓存已过期，触发异步刷新，但仍返回当前缓存的数据。
+8. 异步刷新：在后台异步更新缓存和元数据，不影响当前请求的响应时间。
+
+使用示例：
+
+```java
+Copy@RestController
+@RequestMapping("/users")
+public class UserController {
+    @Autowired
+    private UserService userService;
+
+    @GetMapping("/{userId}")
+    public User getUser(@PathVariable Long userId) {
+        return userService.getUser(userId);
+    }
+}
+```
+
+这个设计的优点：
+
+1. 统一的缓存key生成策略，避免key冲突和不一致。
+2. 使用元数据来跟踪缓存的状态，便于实现更复杂的缓存策略。
+3. 异步刷新机制，即使缓存过期也能快速响应，同时在背后更新数据。
+4. 封装了Redis操作，使得缓存逻辑更加清晰和易于管理。
+
+通过这种方式，您可以轻松地将这个缓存策略应用到其他类型的数据上，只需要在`CacheKeyGenerator`中添加相应的key生成方法，并在对应的Service中实现类似的缓存逻辑即可。
+
+## Prompt:
+我理解一点了，假设，我有一个业务数据，可以通过接口分页刷新，我通过项目id加类型+需求number确定唯一性，我打算查询出所有key然后轮询获取数据后缓存，请以这个场景为例子谈怎么修改业务代码
+
+## Response:
+理解了您的需求。让我们以您描述的场景为例，设计一个分页刷新缓存的方案。我们假设这个业务数据是项目需求（Project Requirements），可以通过项目ID、需求类型和需求编号来唯一确定。
+
+首先，让我们修改一下相关的类：
+
+1. 修改 CacheKeyGenerator:
+
+```java
+Copy@Component
+public class CacheKeyGenerator {
+    private static final String SEPARATOR = ":";
+
+    public String generateKey(String... parts) {
+        return String.join(SEPARATOR, parts);
+    }
+
+    public String generateProjectRequirementKey(Long projectId, String requirementType, String requirementNumber) {
+        return generateKey("project", projectId.toString(), "requirement", requirementType, requirementNumber);
+    }
+
+    public String generateProjectRequirementPattern(Long projectId, String requirementType) {
+        return generateKey("project", projectId.toString(), "requirement", requirementType, "*");
+    }
+}
+```
+
+2. 创建 ProjectRequirement 模型:
+
+```java
+Copypublic class ProjectRequirement {
+    private Long projectId;
+    private String requirementType;
+    private String requirementNumber;
+    private String description;
+    // 其他字段...
+
+    // 构造函数、getters和setters
+}
+```
+
+3. 创建 ProjectRequirementService:
+
+```java
+Copy@Service
+public class ProjectRequirementService {
+    @Autowired
+    private CacheKeyGenerator keyGenerator;
+    
+    @Autowired
+    private CacheRepository cacheRepository;
+    
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+    
+    @Autowired
+    private ProjectRequirementRepository requirementRepository; // 假设这是访问数据库的repository
+
+    public void refreshProjectRequirements(Long projectId, String requirementType, int pageSize) {
+        String pattern = keyGenerator.generateProjectRequirementPattern(projectId, requirementType);
+        Set<String> keys = redisTemplate.keys(pattern);
+
+        List<ProjectRequirement> allRequirements = new ArrayList<>();
+        int page = 0;
+        List<ProjectRequirement> pageRequirements;
+        do {
+            pageRequirements = requirementRepository.findByProjectIdAndType(projectId, requirementType, page, pageSize);
+            allRequirements.addAll(pageRequirements);
+            page++;
+        } while (!pageRequirements.isEmpty());
+
+        for (ProjectRequirement requirement : allRequirements) {
+            String cacheKey = keyGenerator.generateProjectRequirementKey(
+                requirement.getProjectId(), 
+                requirement.getRequirementType(), 
+                requirement.getRequirementNumber()
+            );
+            cacheRepository.setValue(cacheKey, requirement, 3600); // 缓存1小时
+
+            CacheMetadata metadata = new CacheMetadata();
+            metadata.setLastUpdateTime(Instant.now());
+            metadata.setExpirationTime(Instant.now().plusSeconds(3600));
+            metadata.setTtl(3600);
+            metadata.setDataSource("REFRESH");
+            cacheRepository.setMetadata(cacheKey, metadata);
+
+            keys.remove(cacheKey);
+        }
+
+        // 删除不再存在的需求的缓存
+        for (String obsoleteKey : keys) {
+            cacheRepository.deleteValue(obsoleteKey);
+        }
+    }
+
+    public ProjectRequirement getProjectRequirement(Long projectId, String requirementType, String requirementNumber) {
+        String cacheKey = keyGenerator.generateProjectRequirementKey(projectId, requirementType, requirementNumber);
+        ProjectRequirement cachedRequirement = (ProjectRequirement) cacheRepository.getValue(cacheKey);
+        
+        if (cachedRequirement == null) {
+            ProjectRequirement requirement = requirementRepository.findByProjectIdAndTypeAndNumber(projectId, requirementType, requirementNumber);
+            if (requirement != null) {
+                cacheRepository.setValue(cacheKey, requirement, 3600);
+                
+                CacheMetadata metadata = new CacheMetadata();
+                metadata.setLastUpdateTime(Instant.now());
+                metadata.setExpirationTime(Instant.now().plusSeconds(3600));
+                metadata.setTtl(3600);
+                metadata.setDataSource("DATABASE");
+                cacheRepository.setMetadata(cacheKey, metadata);
+            }
+            return requirement;
+        } else {
+            CacheMetadata metadata = cacheRepository.getMetadata(cacheKey);
+            if (metadata != null && metadata.getExpirationTime().isBefore(Instant.now())) {
+                // 如果缓存已过期，触发异步刷新
+                asyncRefreshProjectRequirement(projectId, requirementType, requirementNumber);
+            }
+            return cachedRequirement;
+        }
+    }
+
+    @Async
+    public void asyncRefreshProjectRequirement(Long projectId, String requirementType, String requirementNumber) {
+        ProjectRequirement freshRequirement = requirementRepository.findByProjectIdAndTypeAndNumber(projectId, requirementType, requirementNumber);
+        if (freshRequirement != null) {
+            String cacheKey = keyGenerator.generateProjectRequirementKey(projectId, requirementType, requirementNumber);
+            cacheRepository.setValue(cacheKey, freshRequirement, 3600);
+            
+            CacheMetadata metadata = new CacheMetadata();
+            metadata.setLastUpdateTime(Instant.now());
+            metadata.setExpirationTime(Instant.now().plusSeconds(3600));
+            metadata.setTtl(3600);
+            metadata.setDataSource("ASYNC_REFRESH");
+            cacheRepository.setMetadata(cacheKey, metadata);
+        }
+    }
+}
+```
+
+4. 创建 ProjectRequirementController:
+
+```java
+Copy@RestController
+@RequestMapping("/projects/{projectId}/requirements")
+public class ProjectRequirementController {
+    @Autowired
+    private ProjectRequirementService projectRequirementService;
+
+    @PostMapping("/refresh")
+    public ResponseEntity<?> refreshRequirements(
+            @PathVariable Long projectId,
+            @RequestParam String requirementType,
+            @RequestParam(defaultValue = "100") int pageSize) {
+        projectRequirementService.refreshProjectRequirements(projectId, requirementType, pageSize);
+        return ResponseEntity.ok().build();
+    }
+
+    @GetMapping("/{requirementType}/{requirementNumber}")
+    public ResponseEntity<ProjectRequirement> getRequirement(
+            @PathVariable Long projectId,
+            @PathVariable String requirementType,
+            @PathVariable String requirementNumber) {
+        ProjectRequirement requirement = projectRequirementService.getProjectRequirement(projectId, requirementType, requirementNumber);
+        if (requirement != null) {
+            return ResponseEntity.ok(requirement);
+        } else {
+            return ResponseEntity.notFound().build();
+        }
+    }
+}
+```
+
+这个设计的主要特点：
+
+1. 使用 `CacheKeyGenerator` 生成一致的缓存键，包括用于模式匹配的键。
+2. `refreshProjectRequirements` 方法实现了分页刷新逻辑：
+   * 获取所有匹配的缓存键
+   * 分页从数据库获取所有需求
+   * 更新或添加缓存中的需求
+   * 删除不再存在的需求的缓存
+3. `getProjectRequirement` 方法实现了获取单个需求的逻辑，包括缓存未命中和异步刷新的处理。
+4. 使用 `CacheMetadata` 存储每个缓存项的元数据，便于跟踪缓存状态。
+5. 提供了 REST API 接口来触发刷新和获取需求。
+
+使用这个设计，您可以：
+
+* 通过 POST 请求触发特定项目和需求类型的缓存刷新。
+* 通过 GET 请求获取单个需求，自动处理缓存未命中和过期情况。
+* 轻松扩展到其他类型的业务数据，只需创建相应的 Service 和 Controller。
+
+这个设计允许您高效地管理大量的项目需求缓存，同时提供了灵活的刷新机制和优化的数据获取方式。
+
+## Prompt:
+我怎么没看到rabbitmq的自动刷新部分，在自动刷新里怎么加入，和原来的设计怎么没有一个继承关系，还有手动触发能覆盖自动触发的部分
+
+## Response:
+您提出了很好的观点。我们确实遗漏了RabbitMQ的自动刷新部分，也没有体现继承关系。让我们来改进这个设计，加入RabbitMQ自动刷新，并建立继承关系。同时，我们也会确保手动触发能覆盖自动触发的部分。
+
+首先，让我们创建一个基础的缓存服务接口：
+
+1. 创建 CacheService 接口：
+
+```java
+Copypublic interface CacheService<T> {
+    void refreshCache(String cacheKey);
+    T getFromCache(String cacheKey);
+    void putInCache(String cacheKey, T value);
+}
+```
+
+2. 创建 AbstractCacheService 抽象类：
+
+```java
+Copypublic abstract class AbstractCacheService<T> implements CacheService<T> {
+    @Autowired
+    protected CacheRepository cacheRepository;
+    
+    @Autowired
+    protected CacheKeyGenerator keyGenerator;
+    
+    @Autowired
+    protected RabbitTemplate rabbitTemplate;
+
+    @Override
+    public T getFromCache(String cacheKey) {
+        return (T) cacheRepository.getValue(cacheKey);
+    }
+
+    @Override
+    public void putInCache(String cacheKey, T value) {
+        cacheRepository.setValue(cacheKey, value, 3600); // 默认缓存1小时
+        
+        CacheMetadata metadata = new CacheMetadata();
+        metadata.setLastUpdateTime(Instant.now());
+        metadata.setExpirationTime(Instant.now().plusSeconds(3600));
+        metadata.setTtl(3600);
+        metadata.setDataSource("CACHE");
+        cacheRepository.setMetadata(cacheKey, metadata);
+    }
+
+    @Override
+    public void refreshCache(String cacheKey) {
+        // 发送刷新请求到RabbitMQ
+        rabbitTemplate.convertAndSend("cache-refresh-exchange", "cache.refresh", new CacheRefreshRequest(cacheKey));
+    }
+
+    protected abstract T fetchDataFromSource(String cacheKey);
+}
+```
+
+3. 修改 ProjectRequirementService 以继承 AbstractCacheService：
+
+```java
+Copy@Service
+public class ProjectRequirementService extends AbstractCacheService<ProjectRequirement> {
+    
+    @Autowired
+    private ProjectRequirementRepository requirementRepository;
+
+    public void refreshProjectRequirements(Long projectId, String requirementType, int pageSize) {
+        String pattern = keyGenerator.generateProjectRequirementPattern(projectId, requirementType);
+        Set<String> keys = redisTemplate.keys(pattern);
+
+        List<ProjectRequirement> allRequirements = new ArrayList<>();
+        int page = 0;
+        List<ProjectRequirement> pageRequirements;
+        do {
+            pageRequirements = requirementRepository.findByProjectIdAndType(projectId, requirementType, page, pageSize);
+            allRequirements.addAll(pageRequirements);
+            page++;
+        } while (!pageRequirements.isEmpty());
+
+        for (ProjectRequirement requirement : allRequirements) {
+            String cacheKey = keyGenerator.generateProjectRequirementKey(
+                requirement.getProjectId(), 
+                requirement.getRequirementType(), 
+                requirement.getRequirementNumber()
+            );
+            putInCache(cacheKey, requirement);
+            keys.remove(cacheKey);
+        }
+
+        // 删除不再存在的需求的缓存
+        for (String obsoleteKey : keys) {
+            cacheRepository.deleteValue(obsoleteKey);
+        }
+    }
+
+    public ProjectRequirement getProjectRequirement(Long projectId, String requirementType, String requirementNumber) {
+        String cacheKey = keyGenerator.generateProjectRequirementKey(projectId, requirementType, requirementNumber);
+        ProjectRequirement cachedRequirement = getFromCache(cacheKey);
+        
+        if (cachedRequirement == null) {
+            ProjectRequirement requirement = fetchDataFromSource(cacheKey);
+            if (requirement != null) {
+                putInCache(cacheKey, requirement);
+            }
+            return requirement;
+        } else {
+            CacheMetadata metadata = cacheRepository.getMetadata(cacheKey);
+            if (metadata != null && metadata.getExpirationTime().isBefore(Instant.now())) {
+                // 如果缓存已过期，触发异步刷新
+                refreshCache(cacheKey);
+            }
+            return cachedRequirement;
+        }
+    }
+
+    @Override
+    protected ProjectRequirement fetchDataFromSource(String cacheKey) {
+        // 从缓存键中解析出projectId, requirementType, requirementNumber
+        String[] parts = cacheKey.split(":");
+        Long projectId = Long.parseLong(parts[1]);
+        String requirementType = parts[3];
+        String requirementNumber = parts[4];
+        
+        return requirementRepository.findByProjectIdAndTypeAndNumber(projectId, requirementType, requirementNumber);
+    }
+}
+```
+
+4. 创建 CacheRefreshConsumer 来处理RabbitMQ消息：
+
+```java
+Copy@Service
+public class CacheRefreshConsumer {
+
+    @Autowired
+    private Map<String, CacheService> cacheServices;
+
+    @RabbitListener(queues = "cache-refresh-queue")
+    public void handleCacheRefreshRequest(CacheRefreshRequest request) {
+        String cacheKey = request.getCacheKey();
+        String serviceType = extractServiceType(cacheKey);
+        
+        CacheService cacheService = cacheServices.get(serviceType + "CacheService");
+        if (cacheService != null) {
+            cacheService.refreshCache(cacheKey);
+        }
+    }
+
+    private String extractServiceType(String cacheKey) {
+        // 从缓存键中提取服务类型，例如 "project:1:requirement:TYPE:123" 返回 "ProjectRequirement"
+        String[] parts = cacheKey.split(":");
+        return parts[0].substring(0, 1).toUpperCase() + parts[0].substring(1) + parts[2].substring(0, 1).toUpperCase() + parts[2].substring(1);
+    }
+}
+```
+
+5. 修改 ProjectRequirementController 以支持手动触发：
+
+```java
+Copy@RestController
+@RequestMapping("/projects/{projectId}/requirements")
+public class ProjectRequirementController {
+    @Autowired
+    private ProjectRequirementService projectRequirementService;
+
+    @PostMapping("/refresh")
+    public ResponseEntity<?> refreshRequirements(
+            @PathVariable Long projectId,
+            @RequestParam String requirementType,
+            @RequestParam(defaultValue = "100") int pageSize) {
+        projectRequirementService.refreshProjectRequirements(projectId, requirementType, pageSize);
+        return ResponseEntity.ok().build();
+    }
+
+    @PostMapping("/{requirementType}/{requirementNumber}/refresh")
+    public ResponseEntity<?> refreshSingleRequirement(
+            @PathVariable Long projectId,
+            @PathVariable String requirementType,
+            @PathVariable String requirementNumber) {
+        String cacheKey = projectRequirementService.keyGenerator.generateProjectRequirementKey(projectId, requirementType, requirementNumber);
+        projectRequirementService.refreshCache(cacheKey);
+        return ResponseEntity.ok().build();
+    }
+
+    @GetMapping("/{requirementType}/{requirementNumber}")
+    public ResponseEntity<ProjectRequirement> getRequirement(
+            @PathVariable Long projectId,
+            @PathVariable String requirementType,
+            @PathVariable String requirementNumber) {
+        ProjectRequirement requirement = projectRequirementService.getProjectRequirement(projectId, requirementType, requirementNumber);
+        if (requirement != null) {
+            return ResponseEntity.ok(requirement);
+        } else {
+            return ResponseEntity.notFound().build();
+        }
+    }
+}
+```
+
+这个改进的设计有以下特点：
+
+1. 建立了继承关系：`ProjectRequirementService` 继承自 `AbstractCacheService`，提供了通用的缓存操作。
+2. 集成了RabbitMQ自动刷新：`AbstractCacheService` 中的 `refreshCache` 方法发送消息到RabbitMQ，`CacheRefreshConsumer` 处理这些消息并触发实际的刷新操作。
+3. 手动触发可以覆盖自动触发：通过 `refreshSingleRequirement` 方法，可以手动触发单个需求的刷新，这会立即发送一个刷新请求到RabbitMQ。
+4. 灵活性：这个设计可以轻松扩展到其他类型的缓存数据，只需创建新的服务类并继承 `AbstractCacheService`。
+
+使用这个设计，您可以：
+
+* 通过RabbitMQ实现自动、异步的缓存刷新
+* 手动触发单个或批量缓存项的刷新
+* 轻松扩展到其他类型的业务数据
+* 统一管理不同类型的缓存服务
+
+这个设计提供了一个灵活、可扩展的缓存刷新框架，同时结合了手动和自动刷新机制，满足了您的需求。
+
+## Prompt:
+队列都是一个吧，搞个队列分离和队列优先，结合刚才的最终设计，在原来的代码上进行修改，给出修改的部分保证一致和易于扩展
+
+## Response:
+理解您的需求。我们可以修改设计，实现队列分离和优先级处理，同时保持系统的一致性和可扩展性。让我们修改相关的代码部分：
+
+1. 修改 RabbitMQConfig.java:
+
+```java
+Copy@Configuration
+public class RabbitMQConfig {
+
+    public static final String CACHE_REFRESH_EXCHANGE = "cache.refresh.exchange";
+    public static final String CACHE_REFRESH_QUEUE = "cache.refresh.queue";
+
+    @Bean
+    public TopicExchange cacheRefreshExchange() {
+        return new TopicExchange(CACHE_REFRESH_EXCHANGE);
+    }
+
+    @Bean
+    public Queue cacheRefreshQueue() {
+        Map<String, Object> args = new HashMap<>();
+        args.put("x-max-priority", 10);
+        return new Queue(CACHE_REFRESH_QUEUE, true, false, false, args);
+    }
+
+    @Bean
+    public Binding binding(Queue queue, TopicExchange exchange) {
+        return BindingBuilder.bind(queue).to(exchange).with("cache.refresh.#");
+    }
+
+    @Bean
+    public RabbitTemplate rabbitTemplate(ConnectionFactory connectionFactory) {
+        RabbitTemplate template = new RabbitTemplate(connectionFactory);
+        template.setMessageConverter(new Jackson2JsonMessageConverter());
+        return template;
+    }
+}
+```
+
+2. 修改 CacheRefreshService.java:
+
+```java
+Copy@Service
+public class CacheRefreshService extends AbstractCacheRefreshService<String> {
+
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
+
+    public void refreshCache(CacheRefreshRequest request) {
+        String routingKey = "cache.refresh." + request.getCacheType();
+        rabbitTemplate.convertAndSend(RabbitMQConfig.CACHE_REFRESH_EXCHANGE, routingKey, request, message -> {
+            message.getMessageProperties().setPriority(request.getPriority());
+            return message;
+        });
+    }
+
+    // ... 其他方法保持不变
+}
+```
+
+3. 修改 CacheRefreshConsumerService.java:
+
+```java
+Copy@Service
+public class CacheRefreshConsumerService {
+
+    @Autowired
+    private CacheRefreshService cacheRefreshService;
+
+    @RabbitListener(queues = RabbitMQConfig.CACHE_REFRESH_QUEUE)
+    public void handleCacheRefreshRequest(CacheRefreshRequest request) {
+        try {
+            String latestValue = cacheRefreshService.getLatestValueFromDataSource(request.getCacheKey());
+            cacheRefreshService.handleCacheRefresh(request.getCacheKey(), latestValue);
+        } catch (Exception e) {
+            // 错误处理和日志记录
+        }
+    }
+}
+```
+
+4. 修改 CacheRefreshRequest.java:
+
+```java
+Copypublic class CacheRefreshRequest implements Serializable {
+    private String cacheKey;
+    private String cacheType;
+    private Instant timestamp;
+    private String source;
+    private int priority;
+    // ... 其他字段、构造函数、getter和setter
+}
+```
+
+5. 在 CacheController.java 中添加优先级处理:
+
+```java
+Copy@RestController
+@RequestMapping("/cache")
+public class CacheController {
+
+    @Autowired
+    private CacheRefreshService cacheRefreshService;
+
+    @PostMapping("/refresh")
+    public ResponseEntity<String> refreshCache(@RequestBody CacheRefreshRequest request) {
+        cacheRefreshService.refreshCache(request);
+        return ResponseEntity.ok("Cache refresh request submitted");
+    }
+
+    @PostMapping("/refresh/priority")
+    public ResponseEntity<String> refreshCachePriority(@RequestBody CacheRefreshRequest request) {
+        request.setPriority(10); // 设置最高优先级
+        cacheRefreshService.refreshCache(request);
+        return ResponseEntity.ok("Priority cache refresh request submitted");
+    }
+
+    // ... 其他方法保持不变
+}
+```
+
+这些修改实现了以下功能：
+
+1. 队列分离：使用 TopicExchange 和路由键实现逻辑上的队列分离。不同类型的缓存可以使用不同的路由键。
+2. 优先级处理：为队列配置了优先级，并在发送消息时设置优先级。
+3. 一致性：所有的缓存刷新请求仍然通过同一个交换机和队列处理，保证了处理逻辑的一致性。
+4. 可扩展性：通过修改路由键和优先级，可以轻松地添加新的缓存类型和优先级策略。
+
+这个设计允许您根据缓存类型和优先级灵活地处理刷新请求，同时保持了系统的一致性和可扩展性。您可以通过调整路由键和优先级来适应不同的业务需求。
+
