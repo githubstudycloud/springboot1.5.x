@@ -1656,3 +1656,170 @@ public class ProjectRequirementService extends AbstractCacheRefreshService<Proje
 
 这样，我们就在保持之前改动的基础上，成功地集成了新的业务逻辑。这个设计保证了系统的一致性，同时也展示了如何扩展系统以支持特定的业务需求。
 
+## Prompt:
+请把这个修改完整输出一下并说明，只是这个修改
+
+## Response:
+好的，我理解您希望看到完整的修改输出。我会聚焦于新增和修改的部分，并给出完整的说明。以下是完整的修改：
+
+1. 新增 ProjectRequirement.java:
+
+```java
+Copypackage com.example.cacherefresh.model;
+
+public class ProjectRequirement {
+    private Long projectId;
+    private String subProjectId;
+    private String requirementId;
+    private String description;
+
+    // 构造函数
+    public ProjectRequirement(Long projectId, String subProjectId, String requirementId, String description) {
+        this.projectId = projectId;
+        this.subProjectId = subProjectId;
+        this.requirementId = requirementId;
+        this.description = description;
+    }
+
+    // Getters and setters
+    // ... (省略getter和setter方法)
+}
+```
+
+2. 新增 ProjectRequirementService.java:
+
+```java
+Copypackage com.example.cacherefresh.service;
+
+import com.example.cacherefresh.model.ProjectRequirement;
+import com.example.cacherefresh.model.CacheRefreshRequest;
+import com.example.cacherefresh.repository.CacheRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.Set;
+
+@Service
+public class ProjectRequirementService extends AbstractCacheRefreshService<ProjectRequirement> {
+
+    @Autowired
+    private CacheRepository cacheRepository;
+
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+
+    @Autowired
+    private CacheRefreshService cacheRefreshService;
+
+    // 模拟从数据库分页查询数据
+    private List<ProjectRequirement> getRequirementsFromDb(Long projectId, String subProjectId, int page, int pageSize) {
+        // 实际实现中，这里应该是对数据库的查询
+        // 这里只是一个模拟实现
+        return List.of(new ProjectRequirement(projectId, subProjectId, "REQ-" + page, "Description"));
+    }
+
+    public void refreshProjectRequirements(Long projectId, String subProjectId, int pageSize) {
+        String cacheKeyPattern = String.format("project:%d:subproject:%s:requirement:*", projectId, subProjectId);
+        Set<String> existingKeys = redisTemplate.keys(cacheKeyPattern);
+
+        int page = 0;
+        List<ProjectRequirement> requirements;
+        do {
+            requirements = getRequirementsFromDb(projectId, subProjectId, page, pageSize);
+            for (ProjectRequirement req : requirements) {
+                String cacheKey = String.format("project:%d:subproject:%s:requirement:%s", 
+                    req.getProjectId(), req.getSubProjectId(), req.getRequirementId());
+                cacheRepository.setValue(cacheKey, req);
+                existingKeys.remove(cacheKey);
+
+                // 发送刷新请求到队列
+                CacheRefreshRequest refreshRequest = new CacheRefreshRequest(cacheKey, "PROJECT_REQUIREMENT", 5);
+                cacheRefreshService.refreshCache(refreshRequest);
+            }
+            page++;
+        } while (!requirements.isEmpty());
+
+        // 删除不再存在的缓存项
+        for (String obsoleteKey : existingKeys) {
+            cacheRepository.deleteValue(obsoleteKey);
+        }
+    }
+
+    @Override
+    public ProjectRequirement getLatestValueFromDataSource(String cacheKey) {
+        // 从缓存键解析出projectId, subProjectId, requirementId
+        String[] parts = cacheKey.split(":");
+        Long projectId = Long.parseLong(parts[1]);
+        String subProjectId = parts[3];
+        String requirementId = parts[5];
+
+        // 实际实现中，这里应该是对数据库的查询
+        return new ProjectRequirement(projectId, subProjectId, requirementId, "Latest Description");
+    }
+
+    @Override
+    public void handleCacheRefresh(String cacheKey, ProjectRequirement value) {
+        cacheRepository.setValue(cacheKey, value);
+    }
+
+    @Override
+    public String getCacheValue(String key) {
+        return cacheRepository.getValue(key).toString();
+    }
+
+    @Override
+    public void setCacheValue(String key, ProjectRequirement value) {
+        cacheRepository.setValue(key, value);
+    }
+}
+```
+
+3. 新增 ProjectRequirementController.java:
+
+```java
+Copypackage com.example.cacherefresh.controller;
+
+import com.example.cacherefresh.service.ProjectRequirementService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/project-requirements")
+public class ProjectRequirementController {
+
+    @Autowired
+    private ProjectRequirementService projectRequirementService;
+
+    @PostMapping("/refresh")
+    public ResponseEntity<String> refreshProjectRequirements(
+            @RequestParam Long projectId,
+            @RequestParam String subProjectId,
+            @RequestParam(defaultValue = "100") int pageSize) {
+        projectRequirementService.refreshProjectRequirements(projectId, subProjectId, pageSize);
+        return ResponseEntity.ok("Project requirements refresh initiated");
+    }
+}
+```
+
+说明：
+
+1. ProjectRequirement 模型：
+   * 定义了项目需求的基本结构，包含项目ID、子项目ID、需求ID和描述。
+   * 这个模型用于在缓存和业务逻辑中表示项目需求。
+2. ProjectRequirementService：
+   * 继承自 AbstractCacheRefreshService，实现了特定于项目需求的缓存刷新逻辑。
+   * refreshProjectRequirements 方法实现了分页刷新逻辑：
+     * 使用模式匹配获取现有的缓存键。
+     * 分页从数据源（这里是模拟的）获取需求数据。
+     * 更新缓存并发送刷新请求到RabbitMQ队列。
+     * 删除不再存在的缓存项。
+   * 重写了抽象方法以处理项目需求特定的缓存操作。
+3. ProjectRequirementController：
+   * 提供了一个REST API端点来触发项目需求的缓存刷新。
+   * 允许通过指定项目ID、子项目ID和页面大小来刷新特定项目的需求缓存。
+
+这些修改集成了之前的缓存刷新系统设计，同时增加了处理特定业务场景（项目需求）的能力。它展示了如何扩展系统以支持新的缓存类型，同时保持与现有缓存刷新机制的一致性。
+
