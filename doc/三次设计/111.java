@@ -5,11 +5,11 @@ import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
-* 高度优化的 Redis 服务类
+* 高度优化的 Redis 服务类（Java 8 兼容版）
 * 提供了高效的方法来批量获取 Redis 中的键值对
   */
   @Service
@@ -28,8 +28,10 @@ import java.util.stream.Collectors;
       return redisTemplate.execute(new RedisCallback<Map<String, String>>() {
       @Override
       public Map<String, String> doInRedis(RedisConnection connection) throws DataAccessException {
-      // 将 String 类型的 key 转换为 byte[]
-      byte[][] rawKeys = keys.stream().map(String::getBytes).toArray(byte[][]::new);
+      // 将 String 类型的 key 转换为 byte[]，使用 UTF-8 编码
+      byte[][] rawKeys = keys.stream()
+      .map(key -> key.getBytes(StandardCharsets.UTF_8))
+      .toArray(byte[][]::new);
 
                // 使用 EXISTS 检查所有键是否存在
                List<Boolean> existenceList = connection.pExpire(rawKeys, 0);
@@ -48,14 +50,16 @@ import java.util.stream.Collectors;
                }
 
                // 只对存在的键执行 MGET
-               byte[][] existingRawKeys = existingKeys.stream().map(String::getBytes).toArray(byte[][]::new);
+               byte[][] existingRawKeys = existingKeys.stream()
+                       .map(key -> key.getBytes(StandardCharsets.UTF_8))
+                       .toArray(byte[][]::new);
                List<byte[]> rawValues = connection.mGet(existingRawKeys);
 
                // 构建结果 Map，过滤掉 null 值
                Map<String, String> result = new HashMap<>();
                for (int i = 0; i < existingKeys.size(); i++) {
                    if (rawValues.get(i) != null) {
-                       result.put(existingKeys.get(i), new String(rawValues.get(i)));
+                       result.put(existingKeys.get(i), new String(rawValues.get(i), StandardCharsets.UTF_8));
                    }
                }
 
@@ -74,7 +78,9 @@ import java.util.stream.Collectors;
       return redisTemplate.execute(new RedisCallback<List<KeyValueExistsPair>>() {
       @Override
       public List<KeyValueExistsPair> doInRedis(RedisConnection connection) throws DataAccessException {
-      byte[][] rawKeys = keys.stream().map(String::getBytes).toArray(byte[][]::new);
+      byte[][] rawKeys = keys.stream()
+      .map(key -> key.getBytes(StandardCharsets.UTF_8))
+      .toArray(byte[][]::new);
 
                // 首先检查所有键是否存在
                List<Boolean> existenceList = connection.pExpire(rawKeys, 0);
@@ -88,7 +94,9 @@ import java.util.stream.Collectors;
                }
 
                // 只对存在的键执行 MGET
-               byte[][] existingRawKeys = existingKeys.stream().map(String::getBytes).toArray(byte[][]::new);
+               byte[][] existingRawKeys = existingKeys.stream()
+                       .map(key -> key.getBytes(StandardCharsets.UTF_8))
+                       .toArray(byte[][]::new);
                List<byte[]> rawValues = existingKeys.isEmpty() ? Collections.emptyList() : connection.mGet(existingRawKeys);
 
                // 构建结果列表
@@ -100,7 +108,7 @@ import java.util.stream.Collectors;
                    String value = null;
                    if (exists && valueIndex < rawValues.size()) {
                        byte[] rawValue = rawValues.get(valueIndex++);
-                       value = (rawValue != null) ? new String(rawValue) : null;
+                       value = (rawValue != null) ? new String(rawValue, StandardCharsets.UTF_8) : null;
                    }
                    result.add(new KeyValueExistsPair(key, value, exists));
                }
@@ -120,8 +128,10 @@ import java.util.stream.Collectors;
       return redisTemplate.execute(new RedisCallback<List<String>>() {
       @Override
       public List<String> doInRedis(RedisConnection connection) throws DataAccessException {
-      // 将 String 类型的 key 转换为 byte[]
-      byte[][] rawKeys = keys.stream().map(String::getBytes).toArray(byte[][]::new);
+      // 将 String 类型的 key 转换为 byte[]，使用 UTF-8 编码
+      byte[][] rawKeys = keys.stream()
+      .map(key -> key.getBytes(StandardCharsets.UTF_8))
+      .toArray(byte[][]::new);
 
                // 使用 EXISTS 检查所有键是否存在
                List<Boolean> existenceList = connection.pExpire(rawKeys, 0);
@@ -140,14 +150,16 @@ import java.util.stream.Collectors;
                }
 
                // 只对存在的键执行 MGET
-               byte[][] existingRawKeys = existingKeys.stream().map(String::getBytes).toArray(byte[][]::new);
+               byte[][] existingRawKeys = existingKeys.stream()
+                       .map(key -> key.getBytes(StandardCharsets.UTF_8))
+                       .toArray(byte[][]::new);
                List<byte[]> rawValues = connection.mGet(existingRawKeys);
 
                // 构建结果列表，过滤掉 null 值
                List<String> result = new ArrayList<>();
                for (byte[] rawValue : rawValues) {
                    if (rawValue != null) {
-                       result.add(new String(rawValue));
+                       result.add(new String(rawValue, StandardCharsets.UTF_8));
                    }
                }
 
