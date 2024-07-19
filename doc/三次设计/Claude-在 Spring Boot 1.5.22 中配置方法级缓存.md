@@ -1503,7 +1503,7 @@ public class QueryService {
 可以加上2个boolean指定单查list或者count
 
 ## Response:
-当然可以。我们可以进一步优化这个方法，添加两个布尔参数来指定是否需要查询列表或计数。这样可以更加灵活地控制查询行为。以下是改进后的代码：
+<font><font>当然可以。我们可以进一步优化这个方法，添加两个布尔参数来指定是否需要查询列表或计数。这样可以更加灵活地控制查询行为。以下是改进后的代码：</font></font>
 
 ```java
 复制import java.util.List;
@@ -1550,11 +1550,11 @@ public class QueryService {
 }
 ```
 
-这个版本的改进包括：
+<font><font>这个版本的改进包括：</font></font>
 
-1. 添加了两个布尔参数 `fetchCount` 和 `fetchList`，用于指定是否需要查询数量和列表。
-2. 根据这两个参数，决定是否执行相应的查询。如果不需要执行某个查询，就返回一个已完成的 Future，值为 null。
-3. `QueryResult` 类中的 `count` 字段改为 `Long` 类型，这样可以用 null 表示未查询数量。
+1. <font><font>添加了两个布尔参数</font></font>`fetchCount`<font><font>和</font></font>`fetchList`<font><font>，用于指定是否需要查询数量和列表。</font></font>
+2. <font><font>根据这两个参数，决定是否执行相应的查询。如果不需要执行某个查询，就返回一个已完成的 Future，值为 null。</font></font>
+3. `QueryResult`<font><font>类中的</font></font>`count`<font><font>字段改为</font></font>`Long`<font><font>类型，这样可以用 null 表示未查询数量。</font></font>
 
 <font><font>使用示例：</font></font>
 
@@ -1597,11 +1597,136 @@ public class QueryService {
 
 <font><font>这种设计的优点：</font></font>
 
-1. 灵活性：可以根据需要选择只查询数量、只查询列表，或者两者都查询。
-2. 效率：避免了不必要的查询，可以根据实际需求优化性能。
-3. 通用性：仍然保持了对不同类型查询的支持。
-4. 一致性：提供了一个统一的接口来处理不同的查询需求，使用方式保持一致。
-5. 并发执行：当同时查询数量和列表时，仍然保持并发执行的优势。
+1. <font><font>灵活性：可以根据需要选择只查询数量、只查询列表，或者两者都查询。</font></font>
+2. <font><font>效率：避免了不必要的查询，可以根据实际需求优化性能。</font></font>
+3. <font><font>通用性：仍然保持了对不同类型查询的支持。</font></font>
+4. <font><font>一致性：提供了一个统一的接口来处理不同的查询需求，使用方式保持一致。</font></font>
+5. <font><font>并发执行：当同时查询数量和列表时，仍然保持并发执行的优势。</font></font>
 
-使用这种方法，你可以更加精细地控制查询行为，在需要时只执行必要的查询，从而优化应用的性能。同时，这种设计还保持了良好的扩展性和复用性。
+<font><font>使用这种方法，你可以更加精细地控制查询行为，在需要时只执行必要的查询，从而优化应用的性能。同时，这种设计还保持了良好的扩展性和复用性。</font></font>
+
+## Prompt:
+我的count是Interger类型，请同时兼容int和long
+
+## Response:
+当然可以。我们可以进一步优化代码，使其同时兼容 Integer 和 Long 类型的计数结果。这可以通过使用 Java 的泛型和一些类型转换来实现。以下是改进后的代码：
+
+```java
+复制import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.function.Function;
+
+public class QueryService {
+
+    public static class QueryResult<T, C extends Number> {
+        public C count;
+        public List<T> items;
+
+        public QueryResult(C count, List<T> items) {
+            this.count = count;
+            this.items = items;
+        }
+    }
+
+    public <T, Q, C extends Number> QueryResult<T, C> getItemsAndCount(
+            Q query,
+            Function<Q, C> countFunction,
+            Function<Q, List<T>> listFunction,
+            boolean fetchCount,
+            boolean fetchList) {
+
+        CompletableFuture<C> countFuture = fetchCount ?
+                CompletableFuture.supplyAsync(() -> countFunction.apply(query)) :
+                CompletableFuture.completedFuture(null);
+
+        CompletableFuture<List<T>> itemsFuture = fetchList ?
+                CompletableFuture.supplyAsync(() -> listFunction.apply(query)) :
+                CompletableFuture.completedFuture(null);
+
+        CompletableFuture<QueryResult<T, C>> resultFuture = countFuture.thenCombine(itemsFuture,
+                QueryResult::new);
+
+        try {
+            return resultFuture.get();
+        } catch (InterruptedException | ExecutionException e) {
+            throw new RuntimeException("Error fetching items and/or count", e);
+        }
+    }
+
+    // 辅助方法：将 Integer 转换为 Long
+    public static Long convertToLong(Number number) {
+        return number == null ? null : number.longValue();
+    }
+}
+```
+
+<font><font>这个版本的改进包括：</font></font>
+
+1. `QueryResult` 类现在有两个类型参数：`T` 用于列表项的类型，`C extends Number` 用于计数的类型。
+2. `getItemsAndCount` 方法添加了一个新的类型参数 `C extends Number`，用于计数的类型。
+3. `countFunction` 的返回类型现在是 `C`，可以是 Integer 或 Long。
+4. 添加了一个辅助方法 `convertToLong`，用于在需要时将 Integer 转换为 Long。
+
+<font><font>使用示例：</font></font>
+
+```java
+复制public class UserService {
+    private UserDao userDao;
+    private QueryService queryService;
+
+    public UserService(UserDao userDao) {
+        this.userDao = userDao;
+        this.queryService = new QueryService();
+    }
+
+    // 使用 Integer 作为计数类型
+    public QueryService.QueryResult<User, Integer> getUsersAndCountInt(UserQuery query, boolean fetchCount, boolean fetchList) {
+        return queryService.getItemsAndCount(
+            query,
+            userDao::countInt,  // 假设返回 Integer
+            userDao::findUsers,
+            fetchCount,
+            fetchList
+        );
+    }
+
+    // 使用 Long 作为计数类型
+    public QueryService.QueryResult<User, Long> getUsersAndCountLong(UserQuery query, boolean fetchCount, boolean fetchList) {
+        return queryService.getItemsAndCount(
+            query,
+            userDao::countLong,  // 假设返回 Long
+            userDao::findUsers,
+            fetchCount,
+            fetchList
+        );
+    }
+
+    // 只查询数量（返回 Long）
+    public Long getUserCount(UserQuery query) {
+        return QueryService.convertToLong(getUsersAndCountInt(query, true, false).count);
+    }
+
+    // 只查询列表
+    public List<User> getUsers(UserQuery query) {
+        return getUsersAndCountInt(query, false, true).items;
+    }
+
+    // 同时查询数量和列表（返回 Long 类型的计数）
+    public QueryService.QueryResult<User, Long> getUsersWithCount(UserQuery query) {
+        QueryService.QueryResult<User, Integer> result = getUsersAndCountInt(query, true, true);
+        return new QueryService.QueryResult<>(QueryService.convertToLong(result.count), result.items);
+    }
+}
+```
+
+<font><font>这种设计的优点：</font></font>
+
+1. 兼容性：可以同时处理 Integer 和 Long 类型的计数结果。
+2. 类型安全：通过泛型保证了类型安全。
+3. 灵活性：可以根据实际需求选择返回 Integer 或 Long 类型的计数。
+4. 一致性：提供了统一的接口来处理不同类型的计数结果。
+5. 转换方便：提供了辅助方法来方便地将 Integer 转换为 Long。
+
+使用这种方法，你可以灵活地处理不同类型的计数结果，同时保持代码的类型安全和一致性。这种设计适应性强，可以很好地满足不同的业务需求和数据库实现。
 
