@@ -501,13 +501,15 @@ public class Application {
 如果是docker构建，每次都是新容器怎么配置密钥
 
 ## Response:
-对于Docker构建的环境，特别是每次都是新容器的情况下，我们需要采取不同的策略来处理SSH密钥和敏感信息。以下是一些可以考虑的方法：
+<font><font>对于Docker构建的环境，特别是每次都是新容器的情况下，我们需要采取不同的策略来处理SSH密钥和敏感信息。以下是一些可以考虑的方法：</font></font>
 
-1. 使用Docker Secrets（推荐）： 如果你使用的是Docker Swarm模式，可以利用Docker Secrets来安全地管理敏感信息。 a. 创建secret:
+1. <font><font>使用Docker Secrets（推荐）： 如果你使用的是Docker Swarm模式，可以利用Docker Secrets来安全地管理敏感信息。</font></font><font><font>a. 创建secret:</font></font>
+
    ```
    复制echo "your_ssh_private_key" | docker secret create ssh_private_key -
    ```
-   b. 在Docker Compose文件中使用secret:
+<font><font>b. 在Docker Compose文件中使用secret:</font></font>
+
    ```yaml
    复制version: '3.7'
    services:
@@ -520,16 +522,19 @@ public class Application {
      ssh_private_key:
        external: true
    ```
-   c. 在容器中，secret会被挂载到 `/run/secrets/ssh_private_key`
-2. 使用环境变量： 可以通过环境变量传递密钥内容或密钥的路径。 a. 在Dockerfile中：
+<font><font>c. 在容器中，secret会被挂载到</font></font>`/run/secrets/ssh_private_key`
+2. <font><font>使用环境变量： 可以通过环境变量传递密钥内容或密钥的路径。</font></font><font><font>a. 在Dockerfile中：</font></font>
+
    ```dockerfile
    复制ENV SSH_PRIVATE_KEY_PATH /path/to/id_rsa
    ```
-   b. 在运行容器时传入环境变量：
+<font><font>b. 在运行容器时传入环境变量：</font></font>
+
    ```
    复制docker run -e SSH_PRIVATE_KEY="$(cat ~/.ssh/id_rsa)" your-image
    ```
-3. 使用卷挂载： 将主机上的SSH密钥挂载到容器中。 a. 在Docker Compose文件中：
+3. <font><font>使用卷挂载： 将主机上的SSH密钥挂载到容器中。</font></font><font><font>a. 在Docker Compose文件中：</font></font>
+
    ```yaml
    复制version: '3'
    services:
@@ -538,21 +543,23 @@ public class Application {
        volumes:
          - ~/.ssh:/root/.ssh:ro
    ```
-4. 使用构建参数（不推荐用于生产环境）： 在构建时传入SSH密钥，但这种方法不够安全，因为密钥会被包含在镜像中。 a. 在Dockerfile中：
+4. <font><font>使用构建参数（不推荐用于生产环境）： 在构建时传入SSH密钥，但这种方法不够安全，因为密钥会被包含在镜像中。</font></font><font><font>a. 在Dockerfile中：</font></font>
+
    ```dockerfile
    复制ARG SSH_PRIVATE_KEY
    RUN echo "${SSH_PRIVATE_KEY}" > /root/.ssh/id_rsa && \
        chmod 600 /root/.ssh/id_rsa
    ```
-   b. 构建镜像时：
+<font><font>b. 构建镜像时：</font></font>
+
    ```
    复制docker build --build-arg SSH_PRIVATE_KEY="$(cat ~/.ssh/id_rsa)" -t your-image .
    ```
-5. 使用配置管理工具： 如Kubernetes Secrets、HashiCorp Vault等，这些工具提供了更强大和安全的密钥管理功能。
+5. <font><font>使用配置管理工具： 如Kubernetes Secrets、HashiCorp Vault等，这些工具提供了更强大和安全的密钥管理功能。</font></font>
 
-在Spring Boot应用中使用这些方法：
+<font><font>在Spring Boot应用中使用这些方法：</font></font>
 
-1. 读取环境变量：
+1. <font><font>读取环境变量：</font></font>
 
 ```java
 复制@Value("${SSH_PRIVATE_KEY}")
@@ -563,7 +570,7 @@ private String sshPrivateKey;
 private String sshPrivateKey;
 ```
 
-2. 读取文件：
+2. <font><font>读取文件：</font></font>
 
 ```java
 复制@Value("file:${SSH_PRIVATE_KEY_PATH}")
@@ -573,7 +580,7 @@ private Resource sshPrivateKeyFile;
 String sshPrivateKey = new String(FileCopyUtils.copyToByteArray(sshPrivateKeyFile.getInputStream()));
 ```
 
-3. 使用配置类：
+3. <font><font>使用配置类：</font></font>
 
 ```java
 复制@Configuration
@@ -591,12 +598,12 @@ public class SshConfig {
 }
 ```
 
-最后，无论选择哪种方法，都要确保：
+<font><font>最后，无论选择哪种方法，都要确保：</font></font>
 
-* 不要在代码或版本控制中存储敏感信息
-* 限制对密钥的访问
-* 定期轮换密钥
-* 在生产环境中使用更安全的方法，如SSH密钥认证而不是密码
+* <font><font>不要在代码或版本控制中存储敏感信息</font></font>
+* <font><font>限制对密钥的访问</font></font>
+* <font><font>定期轮换密钥</font></font>
+* <font><font>在生产环境中使用更安全的方法，如SSH密钥认证而不是密码</font></font>
 
-这些方法可以帮助你在Docker环境中安全地管理和使用SSH密钥，即使是在每次都是新容器的情况下。
+<font><font>这些方法可以帮助你在Docker环境中安全地管理和使用SSH密钥，即使是在每次都是新容器的情况下。</font></font>
 
