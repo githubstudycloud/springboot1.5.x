@@ -1869,7 +1869,7 @@ public static class QueryResult<T, C extends Number> {
 用的fast jackson，用方法4吧，在queryservice里解决这个转化问题，请给出完整代码
 
 ## Response:
-当然，我们可以使用Fastjson和自定义序列化器来解决这个问题。以下是完整的QueryService代码，包括自定义的序列化器和反序列化器：
+<font><font>当然，我们可以使用Fastjson和自定义序列化器来解决这个问题。以下是完整的QueryService代码，包括自定义的序列化器和反序列化器：</font></font>
 
 ```java
 复制import com.alibaba.fastjson.JSON;
@@ -1973,13 +1973,13 @@ public class QueryService {
 }
 ```
 
-这个实现有以下几个关键点：
+<font><font>这个实现有以下几个关键点：</font></font>
 
-1. 我们定义了自定义的 `QueryResultSerializer` 和 `QueryResultDeserializer`。
-2. 在静态代码块中，我们将这些自定义的序列化器和反序列化器注册到 Fastjson 的全局配置中。
-3. `QueryResultSerializer` 手动构造 JSON 字符串，确保 `count` 和 `items` 字段被正确序列化。
-4. `QueryResultDeserializer` 从 JSON 对象中提取 `count` 和 `items` 字段，然后构造一个新的 `QueryResult` 对象。
-5. 我们添加了两个辅助方法 `toJsonString` 和 `parseQueryResult`，用于方便地进行 JSON 转换。
+1. <font><font>我们定义了自定义的</font></font>`QueryResultSerializer`<font><font>和</font></font>`QueryResultDeserializer`<font><font>。</font></font>
+2. <font><font>在静态代码块中，我们将这些自定义的序列化器和反序列化器注册到 Fastjson 的全局配置中。</font></font>
+3. `QueryResultSerializer`<font><font>手动构造 JSON 字符串，确保</font></font>`count`<font><font>和</font></font>`items`<font><font>字段被正确序列化。</font></font>
+4. `QueryResultDeserializer`<font><font>从 JSON 对象中提取</font></font>`count`<font><font>和</font></font>`items`<font><font>字段，然后构造一个新的</font></font>`QueryResult`<font><font>对象。</font></font>
+5. <font><font>我们添加了两个辅助方法</font></font>`toJsonString`<font><font>和</font></font>`parseQueryResult`<font><font>，用于方便地进行 JSON 转换。</font></font>
 
 <font><font>使用示例：</font></font>
 
@@ -2016,5 +2016,211 @@ public class QueryService {
 }
 ```
 
-这个实现应该能够解决你遇到的 JSON 序列化和反序列化问题。它允许你在使用泛型的同时，正确地进行 JSON 转换。记住，由于我们使用了全局配置，这个序列化和反序列化方式会影响所有的 `QueryResult` 对象。如果你只想在特定场景下使用这个自定义序列化，你可能需要创建一个自定义的 `SerializeConfig` 和 `ParserConfig`，而不是使用全局配置。
+<font><font>这个实现应该能够解决你遇到的 JSON 序列化和反序列化问题。它允许你在使用泛型的同时，正确地进行 JSON 转换。记住，由于我们使用了全局配置，这个序列化和反序列化方式会影响所有的</font></font>`QueryResult`<font><font>对象。如果你只想在特定场景下使用这个自定义序列化，你可能需要创建一个自定义的</font></font>`SerializeConfig`<font><font>和</font></font>`ParserConfig`<font><font>，而不是使用全局配置。</font></font>
+
+## Prompt:
+这个转化器会自己工作吗？不主动调用的话？还有这个异步触发了方法，但没取到值
+
+## Response:
+您提出了两个很好的问题。让我们一一解答并改进代码：
+
+1. 关于转换器的自动工作： Fastjson 的序列化器和反序列化器在注册到全局配置后，会在 JSON 转换过程中自动使用。但是，为了确保在所有场景下都能正确工作，我们最好显式地使用这些转换器。
+2. 关于异步方法没有取到值： 您说得对，我们需要确保异步操作完成并获取结果。让我们修改代码以解决这些问题。
+
+以下是改进后的 `QueryService` 类：
+
+```java
+复制import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.parser.DefaultJSONParser;
+import com.alibaba.fastjson.parser.JSONToken;
+import com.alibaba.fastjson.parser.ParserConfig;
+import com.alibaba.fastjson.parser.deserializer.ObjectDeserializer;
+import com.alibaba.fastjson.serializer.JSONSerializer;
+import com.alibaba.fastjson.serializer.ObjectSerializer;
+import com.alibaba.fastjson.serializer.SerializeConfig;
+
+import java.io.IOException;
+import java.lang.reflect.Type;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.function.Function;
+
+public class QueryService {
+
+    public static class QueryResult<T, C extends Number> {
+        public C count;
+        public List<T> items;
+
+        public QueryResult(C count, List<T> items) {
+            this.count = count;
+            this.items = items;
+        }
+    }
+
+    private static final SerializeConfig SERIALIZE_CONFIG = new SerializeConfig();
+    private static final ParserConfig PARSER_CONFIG = new ParserConfig();
+
+    static {
+        SERIALIZE_CONFIG.put(QueryResult.class, new QueryResultSerializer());
+        PARSER_CONFIG.putDeserializer(QueryResult.class, new QueryResultDeserializer());
+    }
+
+    public <T, Q, C extends Number> QueryResult<T, C> getItemsAndCount(
+            Q query,
+            Function<Q, C> countFunction,
+            Function<Q, List<T>> listFunction,
+            boolean fetchCount,
+            boolean fetchList) {
+
+        C count = null;
+        List<T> items = null;
+
+        if (fetchCount) {
+            count = countFunction.apply(query);
+        }
+
+        if (fetchList) {
+            items = listFunction.apply(query);
+        }
+
+        return new QueryResult<>(count, items);
+    }
+
+    public <T, Q, C extends Number> CompletableFuture<QueryResult<T, C>> getItemsAndCountAsync(
+            Q query,
+            Function<Q, C> countFunction,
+            Function<Q, List<T>> listFunction,
+            boolean fetchCount,
+            boolean fetchList) {
+
+        CompletableFuture<C> countFuture = fetchCount ?
+                CompletableFuture.supplyAsync(() -> countFunction.apply(query)) :
+                CompletableFuture.completedFuture(null);
+
+        CompletableFuture<List<T>> itemsFuture = fetchList ?
+                CompletableFuture.supplyAsync(() -> listFunction.apply(query)) :
+                CompletableFuture.completedFuture(null);
+
+        return countFuture.thenCombine(itemsFuture, QueryResult::new);
+    }
+
+    public static Long convertToLong(Number number) {
+        return number == null ? null : number.longValue();
+    }
+
+    public static class QueryResultSerializer implements ObjectSerializer {
+        @Override
+        public void write(JSONSerializer serializer, Object object, Object fieldName, Type fieldType, int features) throws IOException {
+            QueryResult<?, ?> queryResult = (QueryResult<?, ?>) object;
+            serializer.out.writeString("{\"count\":");
+            serializer.write(queryResult.count);
+            serializer.out.writeString(",\"items\":");
+            serializer.write(queryResult.items);
+            serializer.out.writeString("}");
+        }
+    }
+
+    public static class QueryResultDeserializer implements ObjectDeserializer {
+        @Override
+        public <T> T deserialze(DefaultJSONParser parser, Type type, Object fieldName) {
+            com.alibaba.fastjson.JSONObject jsonObject = parser.parseObject();
+            Number count = jsonObject.getObject("count", Number.class);
+            List<?> items = jsonObject.getObject("items", List.class);
+            return (T) new QueryResult<>(count, items);
+        }
+
+        @Override
+        public int getFastMatchToken() {
+            return JSONToken.LBRACE;
+        }
+    }
+
+    // 辅助方法：将QueryResult转换为JSON字符串
+    public static String toJsonString(QueryResult<?, ?> queryResult) {
+        return JSON.toJSONString(queryResult, SERIALIZE_CONFIG);
+    }
+
+    // 辅助方法：从JSON字符串解析QueryResult
+    public static <T> QueryResult<T, ? extends Number> parseQueryResult(String json) {
+        return JSON.parseObject(json, QueryResult.class, PARSER_CONFIG);
+    }
+}
+```
+
+主要的改进包括：
+
+1. 创建了私有的 `SERIALIZE_CONFIG` 和 `PARSER_CONFIG`，而不是使用全局配置。这样可以避免影响其他地方的 JSON 转换。
+2. 在 `toJsonString` 和 `parseQueryResult` 方法中显式使用这些配置。
+3. 保留了同步的 `getItemsAndCount` 方法，并添加了一个新的异步方法 `getItemsAndCountAsync`。
+4. 在同步方法中，直接调用函数并返回结果，避免了不必要的异步操作。
+5. 异步方法返回 `CompletableFuture<QueryResult<T, C>>`，调用者需要决定如何处理这个 future。
+
+<font><font>使用示例：</font></font>
+
+```java
+复制public class UserService {
+    private UserDao userDao;
+    private QueryService queryService;
+
+    public UserService(UserDao userDao) {
+        this.userDao = userDao;
+        this.queryService = new QueryService();
+    }
+
+    // 同步方法
+    public QueryService.QueryResult<User, Integer> getUsersAndCount(UserQuery query, boolean fetchCount, boolean fetchList) {
+        return queryService.getItemsAndCount(
+            query,
+            userDao::count,
+            userDao::findUsers,
+            fetchCount,
+            fetchList
+        );
+    }
+
+    // 异步方法
+    public CompletableFuture<QueryService.QueryResult<User, Integer>> getUsersAndCountAsync(UserQuery query, boolean fetchCount, boolean fetchList) {
+        return queryService.getItemsAndCountAsync(
+            query,
+            userDao::count,
+            userDao::findUsers,
+            fetchCount,
+            fetchList
+        );
+    }
+
+    // 将结果转换为JSON字符串
+    public String getUsersAndCountJson(UserQuery query, boolean fetchCount, boolean fetchList) {
+        QueryService.QueryResult<User, Integer> result = getUsersAndCount(query, fetchCount, fetchList);
+        return QueryService.toJsonString(result);
+    }
+
+    // 从JSON字符串解析结果
+    public QueryService.QueryResult<User, ? extends Number> parseUsersAndCount(String json) {
+        return QueryService.parseQueryResult(json);
+    }
+
+    // 异步方法的使用示例
+    public void asyncExample(UserQuery query) {
+        getUsersAndCountAsync(query, true, true)
+            .thenAccept(result -> {
+                System.out.println("Count: " + result.count);
+                System.out.println("Items: " + result.items);
+            })
+            .exceptionally(ex -> {
+                System.err.println("Error: " + ex.getMessage());
+                return null;
+            });
+    }
+}
+```
+
+这些改进应该解决了您提到的问题：
+
+1. JSON 转换器现在会在我们显式调用 `toJsonString` 和 `parseQueryResult` 方法时工作。
+2. 同步方法 `getItemsAndCount` 会立即返回结果。
+3. 异步方法 `getItemsAndCountAsync` 返回一个 `CompletableFuture`，您可以根据需要处理这个 future。
+
+记住，当使用异步方法时，您需要确保在某个地方等待或处理返回的 `CompletableFuture`。
 
