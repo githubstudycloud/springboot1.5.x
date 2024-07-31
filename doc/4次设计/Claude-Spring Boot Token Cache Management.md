@@ -301,3 +301,198 @@ public class TokenCacheApplication {
 
 注意：这个实现仍然使用了一个简单的UUID作为token。在实际应用中，你需要根据你的具体需求来修改 `generateToken` 方法，可能涉及到appId和appKey的使用。
 
+## Prompt:
+有时不同的参数组合需要从缓存中取出不同缓存组合的数据，如何在初级缓存基础上构造组合缓存，并在初级缓存更新时自动更新组合缓存，一般流行哪些最佳实践
+
+## Response:
+您提出了一个很好的问题。构造组合缓存并在初级缓存更新时自动更新组合缓存是一个常见的需求。这里有几种流行的最佳实践可以实现这一目标：
+
+1. 缓存键设计
+2. 多级缓存
+3. 发布/订阅模式
+4. 缓存更新策略
+
+让我们详细探讨这些方法，并提供一些代码示例：
+
+1. 缓存键设计
+
+使用合适的缓存键设计可以有效地管理组合缓存。
+
+```java
+Copypublic class CacheKeyGenerator {
+    public static String generateKey(String... params) {
+        return String.join(":", params);
+    }
+}
+
+@Service
+public class CombinedDataService {
+    @Autowired
+    private RedisTemplate<String, String> redisTemplate;
+
+    public String getCombinedData(String param1, String param2) {
+        String key = CacheKeyGenerator.generateKey("combined", param1, param2);
+        String cachedData = redisTemplate.opsForValue().get(key);
+        if (cachedData == null) {
+            cachedData = computeCombinedData(param1, param2);
+            redisTemplate.opsForValue().set(key, cachedData, 1, TimeUnit.HOURS);
+        }
+        return cachedData;
+    }
+
+    private String computeCombinedData(String param1, String param2) {
+        // Compute combined data
+    }
+}
+```
+
+2. 多级缓存
+
+使用多级缓存可以提高性能并减少对主数据源的访问。
+
+```java
+Copy@Service
+public class MultiLevelCacheService {
+    @Autowired
+    private RedisTemplate<String, String> redisTemplate;
+    
+    private LoadingCache<String, String> localCache;
+
+    @PostConstruct
+    public void init() {
+        localCache = CacheBuilder.newBuilder()
+            .maximumSize(1000)
+            .expireAfterWrite(5, TimeUnit.MINUTES)
+            .build(new CacheLoader<String, String>() {
+                @Override
+                public String load(String key) {
+                    return redisTemplate.opsForValue().get(key);
+                }
+            });
+    }
+
+    public String getData(String key) {
+        try {
+            return localCache.get(key);
+        } catch (ExecutionException e) {
+            // Handle exception
+            return null;
+        }
+    }
+}
+```
+
+3. 发布/订阅模式
+
+使用发布/订阅模式可以在初级缓存更新时自动更新组合缓存。
+
+```java
+Copy@Service
+public class CacheUpdateService {
+    @Autowired
+    private RedisTemplate<String, String> redisTemplate;
+
+    public void updatePrimaryCache(String key, String value) {
+        redisTemplate.opsForValue().set(key, value);
+        redisTemplate.convertAndSend("cacheUpdateChannel", key);
+    }
+}
+
+@Service
+public class CacheUpdateListener {
+    @Autowired
+    private RedisTemplate<String, String> redisTemplate;
+
+    @PostConstruct
+    public void init() {
+        redisTemplate.listenToChannel("cacheUpdateChannel", message -> {
+            String updatedKey = (String) message.getBody();
+            updateCombinedCache(updatedKey);
+        });
+    }
+
+    private void updateCombinedCache(String updatedKey) {
+        // Update combined cache based on the updated primary cache
+    }
+}
+```
+
+4. 缓存更新策略
+
+根据数据的特性选择适当的缓存更新策略。
+
+```java
+Copypublic enum CacheUpdateStrategy {
+    WRITE_THROUGH, WRITE_BEHIND, WRITE_AROUND
+}
+
+@Service
+public class StrategicCacheService {
+    @Autowired
+    private RedisTemplate<String, String> redisTemplate;
+
+    public void updateCache(String key, String value, CacheUpdateStrategy strategy) {
+        switch (strategy) {
+            case WRITE_THROUGH:
+                updateDatabase(key, value);
+                redisTemplate.opsForValue().set(key, value);
+                break;
+            case WRITE_BEHIND:
+                redisTemplate.opsForValue().set(key, value);
+                asyncUpdateDatabase(key, value);
+                break;
+            case WRITE_AROUND:
+                updateDatabase(key, value);
+                redisTemplate.delete(key);
+                break;
+        }
+    }
+
+    private void updateDatabase(String key, String value) {
+        // Update database
+    }
+
+    private void asyncUpdateDatabase(String key, String value) {
+        // Async update database
+    }
+}
+```
+
+在实际应用中，您可能需要结合使用这些策略。例如：
+
+```java
+Copy@Service
+public class ComprehensiveCacheService {
+    @Autowired
+    private RedisTemplate<String, String> redisTemplate;
+    @Autowired
+    private CacheUpdateService cacheUpdateService;
+    @Autowired
+    private MultiLevelCacheService multiLevelCacheService;
+    @Autowired
+    private StrategicCacheService strategicCacheService;
+
+    public String getCombinedData(String param1, String param2) {
+        String key = CacheKeyGenerator.generateKey("combined", param1, param2);
+        String cachedData = multiLevelCacheService.getData(key);
+        if (cachedData == null) {
+            cachedData = computeCombinedData(param1, param2);
+            strategicCacheService.updateCache(key, cachedData, CacheUpdateStrategy.WRITE_THROUGH);
+        }
+        return cachedData;
+    }
+
+    public void updatePrimaryData(String key, String value) {
+        cacheUpdateService.updatePrimaryCache(key, value);
+    }
+
+    private String computeCombinedData(String param1, String param2) {
+        // Compute combined data
+    }
+}
+```
+
+这个综合示例结合了缓存键设计、多级缓存、发布/订阅模式和缓存更新策略。它提供了一个灵活和高效的方式来管理初级缓存和组合缓存。
+
+记住，选择哪种方法或它们的组合取决于您的具体需求，如数据一致性要求、读写比例、数据量大小等。您可能需要根据实际情况进行调整和优化。
+
