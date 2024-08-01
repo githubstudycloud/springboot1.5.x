@@ -956,3 +956,436 @@ Copypublic List<String> getMultipleValuesInBatches(List<String> keys, int batchS
 
 这个实现应该能够有效处理大量 key 的情况，同时通过使用通配符查询来优化性能。如果您在使用过程中遇到任何问题或需要进一步优化，请随时告诉我。
 
+## Prompt:
+用mget批量分页并发取值快些吧
+
+## Response:
+您提出了一个很好的观点。使用 mget 进行批量查询，再结合分页和并发处理确实可以大幅提高性能。让我们基于这个思路来优化实现：
+
+```java
+Copyimport org.springframework.data.redis.core.RedisCallback;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.stereotype.Repository;
+
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.stream.Collectors;
+
+@Repository
+public class OptimizedRedisRepository {
+
+    private final StringRedisTemplate redisTemplate;
+    private final ExecutorService executorService;
+
+    public OptimizedRedisRepository(StringRedisTemplate redisTemplate) {
+        this.redisTemplate = redisTemplate;
+        this.executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+    }
+
+    public List<String> getMultipleValues(List<String> keys) {
+        int batchSize = 1000; // 可以根据实际情况调整
+        int totalBatches = (keys.size() + batchSize - 1) / batchSize;
+
+        List<CompletableFuture<List<String>>> futures = new ArrayList<>();
+
+        for (int i = 0; i < totalBatches; i++) {
+            int start = i * batchSize;
+            int end = Math.min(start + batchSize, keys.size());
+            List<String> batchKeys = keys.subList(start, end);
+
+            CompletableFuture<List<String>> future = CompletableFuture.supplyAsync(
+                () -> getBatchValues(batchKeys),
+                executorService
+            );
+            futures.add(future);
+        }
+
+        return futures.stream()
+            .map(CompletableFuture::join)
+            .flatMap(List::stream)
+            .collect(Collectors.toList());
+    }
+
+    private List<String> getBatchValues(List<String> batchKeys) {
+        return redisTemplate.execute((RedisCallback<List<String>>) connection -> {
+            byte[][] rawKeys = batchKeys.stream()
+                .map(String::getBytes)
+                .toArray(byte[][]::new);
+
+            List<byte[]> rawValues = connection.mGet(rawKeys);
+            return rawValues.stream()
+                .map(value -> value != null ? new String(value) : null)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        });
+    }
+
+    // 不要忘记在应用关闭时关闭ExecutorService
+    public void shutdown() {
+        executorService.shutdown();
+        try {
+            if (!executorService.awaitTermination(60, TimeUnit.SECONDS)) {
+                executorService.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executorService.shutdownNow();
+        }
+    }
+}
+```
+
+这个优化版本的主要特点：
+
+1. 批量处理：使用 mget 进行批量查询，每批处理 1000 个 key（可以根据实际情况调整）。
+2. 并发处理：使用 CompletableFuture 和线程池来并发处理每一批 key，充分利用多核性能。
+3. 分页查询：将大量的 key 分成多个小批次，避免一次性处理过多 key 导致的性能问题。
+4. 灵活性：可以根据实际情况调整批次大小和线程池大小。
+5. 错误处理：使用 CompletableFuture 可以更好地处理异步操作中的错误。
+
+使用建议：
+
+1. 批次大小调整：根据您的 Redis 实例性能和网络情况，调整 batchSize 的值以获得最佳性能。
+2. 监控：实现性能监控，例如：
+
+```java
+Copypublic List<String> getMultipleValuesWithMonitoring(List<String> keys) {
+    long startTime = System.currentTimeMillis();
+    List<String> results = getMultipleValues(keys);
+    long endTime = System.currentTimeMillis();
+    logger.info("Fetched {} keys in {} ms", keys.size(), (endTime - startTime));
+    return results;
+}
+```
+
+3. 错误处理：添加更详细的错误处理逻辑：
+
+```java
+Copyprivate List<String> getBatchValues(List<String> batchKeys) {
+    try {
+        return redisTemplate.execute((RedisCallback<List<String>>) connection -> {
+            // ... 原有的实现 ...
+        });
+    } catch (Exception e) {
+        logger.error("Error fetching batch values from Redis", e);
+        // 可以选择返回部分结果、重试或抛出异常
+        return Collections.emptyList();
+    }
+}
+```
+
+4. 资源管理：确保在应用关闭时调用 shutdown() 方法来正确关闭线程池。
+5. 本地缓存：考虑添加本地缓存来进一步提高性能，特别是对于频繁访问的 key。
+6. 连接池优化：确保 Redis 连接池的配置适合并发操作，例如：
+
+```yaml
+Copyspring:
+  redis:
+    lettuce:
+      pool:
+        max-active: 8
+        max-idle: 8
+        min-idle: 0
+        max-wait: -1ms
+```
+
+这个实现应该能够显著提高大量 key 查询的性能。它利用了 mget 的批量查询能力，同时通过并发处理提高了整体吞吐量。如果您在使用过程中遇到任何问题或需要进一步优化，请随时告诉我。
+
+## Prompt:
+没有按通配符取所有值吗
+
+## Response:
+您说得对，我之前的回答确实忽略了通配符查询的部分。让我们结合通配符查询、mget 批量获取和并发处理来优化实现。这种方法特别适用于大量 key 具有相似前缀的情况。
+
+以下是一个综合了这些策略的优化版本：
+
+```java
+Copyimport org.springframework.data.redis.core.RedisCallback;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.stereotype.Repository;
+
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.stream.Collectors;
+
+@Repository
+public class OptimizedRedisRepository {
+
+    private final StringRedisTemplate redisTemplate;
+    private final ExecutorService executorService;
+
+    public OptimizedRedisRepository(StringRedisTemplate redisTemplate) {
+        this.redisTemplate = redisTemplate;
+        this.executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+    }
+
+    public List<String> getMultipleValues(List<String> keys) {
+        if (keys.size() <= 2000) {
+            return getValuesDirectly(keys);
+        } else {
+            return getValuesWithWildcard(keys);
+        }
+    }
+
+    private List<String> getValuesDirectly(List<String> keys) {
+        int batchSize = 1000;
+        int totalBatches = (keys.size() + batchSize - 1) / batchSize;
+
+        List<CompletableFuture<List<String>>> futures = new ArrayList<>();
+
+        for (int i = 0; i < totalBatches; i++) {
+            int start = i * batchSize;
+            int end = Math.min(start + batchSize, keys.size());
+            List<String> batchKeys = keys.subList(start, end);
+
+            CompletableFuture<List<String>> future = CompletableFuture.supplyAsync(
+                () -> getBatchValues(batchKeys),
+                executorService
+            );
+            futures.add(future);
+        }
+
+        return futures.stream()
+            .map(CompletableFuture::join)
+            .flatMap(List::stream)
+            .collect(Collectors.toList());
+    }
+
+    private List<String> getValuesWithWildcard(List<String> keys) {
+        Map<String, List<String>> groupedKeys = groupKeysByPrefix(keys);
+        
+        List<CompletableFuture<List<String>>> futures = groupedKeys.entrySet().stream()
+            .map(entry -> CompletableFuture.supplyAsync(
+                () -> getValuesForPrefix(entry.getKey(), entry.getValue()),
+                executorService
+            ))
+            .collect(Collectors.toList());
+
+        return futures.stream()
+            .map(CompletableFuture::join)
+            .flatMap(List::stream)
+            .collect(Collectors.toList());
+    }
+
+    private List<String> getValuesForPrefix(String prefix, List<String> groupKeys) {
+        return redisTemplate.execute((RedisCallback<List<String>>) connection -> {
+            Set<byte[]> matchedKeys = connection.keys((prefix + "*").getBytes());
+            byte[][] keysArray = matchedKeys.toArray(new byte[0][]);
+            List<byte[]> rawValues = connection.mGet(keysArray);
+
+            List<String> results = new ArrayList<>();
+            for (int i = 0; i < keysArray.length; i++) {
+                String keyString = new String(keysArray[i]);
+                if (groupKeys.contains(keyString) && rawValues.get(i) != null) {
+                    results.add(new String(rawValues.get(i)));
+                }
+            }
+            return results;
+        });
+    }
+
+    private List<String> getBatchValues(List<String> batchKeys) {
+        return redisTemplate.execute((RedisCallback<List<String>>) connection -> {
+            byte[][] rawKeys = batchKeys.stream()
+                .map(String::getBytes)
+                .toArray(byte[][]::new);
+
+            List<byte[]> rawValues = connection.mGet(rawKeys);
+            return rawValues.stream()
+                .map(value -> value != null ? new String(value) : null)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        });
+    }
+
+    private Map<String, List<String>> groupKeysByPrefix(List<String> keys) {
+        return keys.stream().collect(Collectors.groupingBy(this::extractPrefix));
+    }
+
+    private String extractPrefix(String key) {
+        String[] parts = key.split(":", 5);
+        return String.join(":", Arrays.copyOf(parts, Math.min(parts.length, 4)));
+    }
+
+    public void shutdown() {
+        executorService.shutdown();
+        try {
+            if (!executorService.awaitTermination(60, TimeUnit.SECONDS)) {
+                executorService.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executorService.shutdownNow();
+        }
+    }
+}
+```
+
+这个优化版本的主要特点：
+
+1. 动态策略：根据 key 的数量选择不同的查询策略。
+2. 直接查询：当 key 数量不超过 2000 时，使用 mget 直接批量查询。
+3. 通配符查询：当 key 数量超过 2000 时，按前缀分组，然后使用通配符查询。
+4. 并发处理：无论是直接查询还是通配符查询，都使用 CompletableFuture 进行并发处理。
+5. 批量获取：在通配符查询中，使用 mget 批量获取匹配的 key 的值。
+6. 结果过滤：确保只返回原始 key 列表中存在的 key 的值。
+
+使用建议：
+
+1. 性能监控：实现一个简单的性能监控机制：
+
+```java
+Copypublic List<String> getMultipleValuesWithMonitoring(List<String> keys) {
+    long startTime = System.currentTimeMillis();
+    List<String> results = getMultipleValues(keys);
+    long endTime = System.currentTimeMillis();
+    logger.info("Fetched {} keys in {} ms", keys.size(), (endTime - startTime));
+    return results;
+}
+```
+
+2. 错误处理：添加适当的错误处理逻辑，例如：
+
+```java
+Copytry {
+    return getMultipleValues(keys);
+} catch (Exception e) {
+    logger.error("Error fetching multiple values from Redis", e);
+    // 可以选择重试、返回部分结果，或者抛出自定义异常
+    throw new RedisOperationException("Failed to fetch values from Redis", e);
+}
+```
+
+3. 资源管理：确保在应用关闭时调用 shutdown() 方法来正确关闭线程池。
+4. 配置调优：根据实际情况调整批次大小、线程池大小和 Redis 连接池配置。
+
+这个实现综合了 mget 批量查询、通配符查询和并发处理的优点，应该能够有效处理大量 key 的情况，特别是当这些 key 有相似前缀时。如果您在使用过程中遇到任何问题或需要进一步优化，请随时告诉我。
+
+## Prompt:
+这个能批量通配取回来再过滤吗
+
+## Response:
+当然可以。我们可以优化代码，先使用通配符批量获取所有匹配的键值对，然后在应用层面进行过滤。这种方法可以减少与 Redis 的交互次数，提高效率。以下是优化后的实现：
+
+```java
+Copyimport org.springframework.data.redis.core.RedisCallback;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.stereotype.Repository;
+
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.stream.Collectors;
+
+@Repository
+public class OptimizedRedisRepository {
+
+    private final StringRedisTemplate redisTemplate;
+    private final ExecutorService executorService;
+
+    public OptimizedRedisRepository(StringRedisTemplate redisTemplate) {
+        this.redisTemplate = redisTemplate;
+        this.executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+    }
+
+    public List<String> getMultipleValues(List<String> keys) {
+        Map<String, List<String>> groupedKeys = groupKeysByPrefix(keys);
+        
+        List<CompletableFuture<Map<String, String>>> futures = groupedKeys.entrySet().stream()
+            .map(entry -> CompletableFuture.supplyAsync(
+                () -> getValuesForPrefix(entry.getKey()),
+                executorService
+            ))
+            .collect(Collectors.toList());
+
+        Map<String, String> allResults = futures.stream()
+            .map(CompletableFuture::join)
+            .flatMap(map -> map.entrySet().stream())
+            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
+
+        return keys.stream()
+            .map(allResults::get)
+            .filter(Objects::nonNull)
+            .collect(Collectors.toList());
+    }
+
+    private Map<String, String> getValuesForPrefix(String prefix) {
+        return redisTemplate.execute((RedisCallback<Map<String, String>>) connection -> {
+            Set<byte[]> matchedKeys = connection.keys((prefix + "*").getBytes());
+            if (matchedKeys.isEmpty()) {
+                return Collections.emptyMap();
+            }
+
+            byte[][] keysArray = matchedKeys.toArray(new byte[0][]);
+            List<byte[]> rawValues = connection.mGet(keysArray);
+
+            Map<String, String> results = new HashMap<>();
+            for (int i = 0; i < keysArray.length; i++) {
+                String keyString = new String(keysArray[i]);
+                if (rawValues.get(i) != null) {
+                    results.put(keyString, new String(rawValues.get(i)));
+                }
+            }
+            return results;
+        });
+    }
+
+    private Map<String, List<String>> groupKeysByPrefix(List<String> keys) {
+        return keys.stream().collect(Collectors.groupingBy(this::extractPrefix));
+    }
+
+    private String extractPrefix(String key) {
+        String[] parts = key.split(":", 5);
+        return String.join(":", Arrays.copyOf(parts, Math.min(parts.length, 4)));
+    }
+
+    public void shutdown() {
+        executorService.shutdown();
+        try {
+            if (!executorService.awaitTermination(60, TimeUnit.SECONDS)) {
+                executorService.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executorService.shutdownNow();
+        }
+    }
+}
+```
+
+这个优化版本的主要特点：
+
+1. 通配符批量查询：使用通配符查询批量获取所有匹配的键值对。
+2. 并发处理：对每个前缀的查询使用 CompletableFuture 进行并发处理。
+3. 批量获取：使用 mGet 一次性获取所有匹配键的值。
+4. 应用层过滤：在应用层面对结果进行过滤，只返回原始 key 列表中存在的 key 的值。
+5. 结果合并：将所有并发查询的结果合并到一个 Map 中，然后根据原始 key 列表进行过滤。
+
+使用建议：
+
+1. 性能监控：添加性能监控代码：
+
+```java
+Copypublic List<String> getMultipleValuesWithMonitoring(List<String> keys) {
+    long startTime = System.currentTimeMillis();
+    List<String> results = getMultipleValues(keys);
+    long endTime = System.currentTimeMillis();
+    logger.info("Fetched {} keys in {} ms", keys.size(), (endTime - startTime));
+    return results;
+}
+```
+
+2. 错误处理：增加错误处理逻辑：
+
+```java
+Copytry {
+    return getMultipleValues(keys);
+} catch (Exception e) {
+    logger.error("Error fetching multiple values from Redis", e);
+    // 可以选择重试、返回部分结果，或者抛出自定义异常
+    throw new RedisOperationException("Failed to fetch values from Redis", e);
+}
+```
+
+3. 内存管理：如果处理的键值对数量非常大，可能需要注意内存使用。可以考虑分批处理或使用流式处理来减少内存压力。
+4. 配置调优：根据实际情况调整线程池大小和 Redis 连接池配置。
+5. 前缀策略：根据实际的 key 结构调整 extractPrefix 方法，以获得最佳的分组效果。
+
+这个实现通过批量通配查询和并发处理，应该能够高效地处理大量 key 的情况，特别是当这些 key 有相似前缀时。它减少了与 Redis 的交互次数，同时利用并发处理提高了整体性能。如果您在使用过程中遇到任何问题或需要进一步优化，请随时告诉我。
+
