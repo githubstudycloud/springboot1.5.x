@@ -1546,3 +1546,113 @@ public void destroy() {
 
 这个实现应该能够在 Spring Boot 1.5.22 环境中正常工作，利用 Spring 的依赖注入特性来管理 RedisTemplate。如果您在使用过程中遇到任何问题或需要进一步优化，请随时告诉我。
 
+## Prompt:
+后面2个注解需要用吗？，shutdown那个方法没有调用，请输出完整代码
+
+## Response:
+您说得对,我们应该使用 @PostConstruct 和 @PreDestroy 注解来正确管理资源。我会将这些纳入考虑,并移除未使用的 shutdown 方法。以下是完整的、优化后的代码:
+
+```java
+Copyimport org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisCallback;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.stereotype.Repository;
+
+import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.stream.Collectors;
+
+@Repository
+public class OptimizedRedisRepository {
+
+    @Autowired
+    private StringRedisTemplate redisTemplate;
+
+    private ExecutorService executorService;
+
+    @PostConstruct
+    public void init() {
+        this.executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+    }
+
+    public List<String> getMultipleValues(List<String> keys) {
+        Map<String, List<String>> groupedKeys = groupKeysByPrefix(keys);
+        
+        List<CompletableFuture<Map<String, String>>> futures = groupedKeys.entrySet().stream()
+            .map(entry -> CompletableFuture.supplyAsync(
+                () -> getValuesForPrefix(entry.getKey()),
+                executorService
+            ))
+            .collect(Collectors.toList());
+
+        Map<String, String> allResults = futures.stream()
+            .map(CompletableFuture::join)
+            .flatMap(map -> map.entrySet().stream())
+            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
+
+        return keys.stream()
+            .map(allResults::get)
+            .filter(Objects::nonNull)
+            .collect(Collectors.toList());
+    }
+
+    private Map<String, String> getValuesForPrefix(String prefix) {
+        return redisTemplate.execute((RedisCallback<Map<String, String>>) connection -> {
+            Set<byte[]> matchedKeys = connection.keys((prefix + "*").getBytes());
+            if (matchedKeys.isEmpty()) {
+                return Collections.emptyMap();
+            }
+
+            byte[][] keysArray = matchedKeys.toArray(new byte[0][]);
+            List<byte[]> rawValues = connection.mGet(keysArray);
+
+            Map<String, String> results = new HashMap<>();
+            for (int i = 0; i < keysArray.length; i++) {
+                String keyString = new String(keysArray[i]);
+                if (rawValues.get(i) != null) {
+                    results.put(keyString, new String(rawValues.get(i)));
+                }
+            }
+            return results;
+        });
+    }
+
+    private Map<String, List<String>> groupKeysByPrefix(List<String> keys) {
+        return keys.stream().collect(Collectors.groupingBy(this::extractPrefix));
+    }
+
+    private String extractPrefix(String key) {
+        String[] parts = key.split(":", 5);
+        return String.join(":", Arrays.copyOf(parts, Math.min(parts.length, 4)));
+    }
+
+    @PreDestroy
+    public void destroy() {
+        if (executorService != null) {
+            executorService.shutdown();
+            try {
+                if (!executorService.awaitTermination(60, TimeUnit.SECONDS)) {
+                    executorService.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                executorService.shutdownNow();
+            }
+        }
+    }
+}
+```
+
+这个版本的代码包含以下改进:
+
+1. 使用 @PostConstruct 注解的 init() 方法来初始化 ExecutorService。这确保了线程池在所有依赖注入完成后创建。
+2. 使用 @PreDestroy 注解的 destroy() 方法来关闭 ExecutorService。这确保了在 Spring 容器销毁 bean 时,线程池得到正确关闭。
+3. 移除了之前未被调用的 shutdown() 方法,将其逻辑整合到 destroy() 方法中。
+4. 保留了通过 @Autowired 注入 StringRedisTemplate 的方式。
+5. 保持了原有的批量查询和并发处理逻辑不变。
+
+这个实现应该能够在 Spring Boot 1.5.22 环境中正常工作,并且能够正确地管理资源的生命周期。它利用了 Spring 的依赖注入和生命周期管理特性,同时保持了高效的 Redis 批量查询和并发处理逻辑。
+
+如果您在使用过程中遇到任何问题或需要进一步优化,请随时告诉我。
+
