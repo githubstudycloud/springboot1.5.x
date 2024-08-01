@@ -505,3 +505,217 @@ maxmemory-policy allkeys-lru
 
 通过以上这些优化策略，您应该能够显著提高大量前缀相同的 Redis 键的批量查询速度。根据您的具体场景和数据结构，选择最适合的方法或组合使用多种方法来获得最佳性能。
 
+## Prompt:
+pipeline不支持clusterjedis
+
+## Response:
+您说得对,对于Redis集群环境,pipeline确实不能直接使用。在ClusterJedis环境下,我们需要采用其他策略来优化批量查询。以下是一些适用于Redis集群的优化方法:
+
+1. 使用JedisCluster的mget方法
+
+JedisCluster提供了mget方法,可以批量获取多个key的值。这个方法内部会自动处理跨节点的查询。
+
+```java
+Copyimport redis.clients.jedis.JedisCluster;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+
+@Service
+public class OptimizedRedisService {
+
+    private final JedisCluster jedisCluster;
+
+    public OptimizedRedisService(JedisCluster jedisCluster) {
+        this.jedisCluster = jedisCluster;
+    }
+
+    public List<String> getMultipleValues(String[] keys) {
+        return jedisCluster.mget(keys);
+    }
+}
+```
+
+2. 按槽位分组查询
+
+Redis集群使用槽位(slot)来分配数据。我们可以按槽位对key进行分组,然后对每组key单独执行批量查询。
+
+```java
+Copyimport redis.clients.jedis.JedisCluster;
+import org.springframework.stereotype.Service;
+
+import java.util.*;
+
+@Service
+public class OptimizedRedisService {
+
+    private final JedisCluster jedisCluster;
+
+    public OptimizedRedisService(JedisCluster jedisCluster) {
+        this.jedisCluster = jedisCluster;
+    }
+
+    public List<String> getMultipleValues(List<String> keys) {
+        Map<Integer, List<String>> slotKeys = new HashMap<>();
+        for (String key : keys) {
+            int slot = JedisClusterCRC16.getSlot(key);
+            slotKeys.computeIfAbsent(slot, k -> new ArrayList<>()).add(key);
+        }
+
+        List<String> results = new ArrayList<>();
+        for (List<String> slotKeyList : slotKeys.values()) {
+            results.addAll(jedisCluster.mget(slotKeyList.toArray(new String[0])));
+        }
+
+        return results;
+    }
+}
+```
+
+3. 使用Lua脚本
+
+Lua脚本在Redis集群中是支持的,只要脚本涉及的所有key都在同一个槽位。我们可以编写一个Lua脚本来批量获取数据。
+
+```java
+Copyimport redis.clients.jedis.JedisCluster;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+
+@Service
+public class OptimizedRedisService {
+
+    private final JedisCluster jedisCluster;
+
+    public OptimizedRedisService(JedisCluster jedisCluster) {
+        this.jedisCluster = jedisCluster;
+    }
+
+    public List<String> getValuesWithPrefix(String prefix) {
+        String script = 
+            "local keys = redis.call('keys', ARGV[1] .. '*') " +
+            "return redis.call('mget', unpack(keys))";
+        
+        return (List<String>) jedisCluster.eval(script, 0, prefix);
+    }
+}
+```
+
+4. 使用Redisson
+
+Redisson是一个高级的Redis客户端,它提供了对Redis集群的良好支持,包括批量操作。
+
+```java
+Copyimport org.redisson.api.RBatch;
+import org.redisson.api.RedissonClient;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.concurrent.TimeUnit;
+
+@Service
+public class OptimizedRedisService {
+
+    private final RedissonClient redisson;
+
+    public OptimizedRedisService(RedissonClient redisson) {
+        this.redisson = redisson;
+    }
+
+    public List<String> getMultipleValues(List<String> keys) {
+        RBatch batch = redisson.createBatch();
+        for (String key : keys) {
+            batch.getBucket(key).getAsync();
+        }
+        return batch.execute().getResponses();
+    }
+}
+```
+
+5. 分批处理
+
+如果数据量非常大,可以考虑分批处理,每次处理一部分数据。
+
+```java
+Copyimport redis.clients.jedis.JedisCluster;
+import org.springframework.stereotype.Service;
+
+import java.util.*;
+
+@Service
+public class OptimizedRedisService {
+
+    private final JedisCluster jedisCluster;
+
+    public OptimizedRedisService(JedisCluster jedisCluster) {
+        this.jedisCluster = jedisCluster;
+    }
+
+    public List<String> getValuesInBatches(List<String> keys, int batchSize) {
+        List<String> allResults = new ArrayList<>();
+        for (int i = 0; i < keys.size(); i += batchSize) {
+            List<String> batchKeys = keys.subList(i, Math.min(i + batchSize, keys.size()));
+            allResults.addAll(jedisCluster.mget(batchKeys.toArray(new String[0])));
+        }
+        return allResults;
+    }
+}
+```
+
+这些方法应该能够在Redis集群环境中提高批量查询的性能。根据您的具体场景和数据结构,选择最适合的方法或组合使用多种方法来获得最佳性能。同时,请确保您的Redis集群配置已经优化,包括内存、网络和集群拓扑等方面。
+
+## Prompt:
+我之前使用的redistemplate的multiget，哪个新方法最好用呢
+
+## Response:
+考虑到您之前使用的是 RedisTemplate 的 multiGet 方法，并且现在处于 Redis 集群环境中，我推荐使用 JedisCluster 的 mget 方法作为最佳替代。这个方法最接近您之前的使用方式，并且能够很好地处理 Redis 集群环境。
+
+以下是使用 JedisCluster 的 mget 方法的优化实现：
+
+```java
+Copyimport org.springframework.data.redis.connection.RedisClusterConnection;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.stereotype.Service;
+import redis.clients.jedis.JedisCluster;
+
+import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
+
+@Service
+public class OptimizedRedisService {
+
+    private final RedisTemplate<String, String> redisTemplate;
+
+    public OptimizedRedisService(RedisTemplate<String, String> redisTemplate) {
+        this.redisTemplate = redisTemplate;
+    }
+
+    public List<String> getMultipleValues(List<String> keys) {
+        return redisTemplate.execute((RedisClusterConnection connection) -> {
+            JedisCluster jedisCluster = (JedisCluster) connection.getNativeConnection();
+            List<String> results = jedisCluster.mget(keys.toArray(new String[0]));
+            return results.stream().filter(Objects::nonNull).collect(Collectors.toList());
+        });
+    }
+}
+```
+
+这个实现有以下优点：
+
+1. 兼容性：它与您之前使用的 RedisTemplate 保持了很好的兼容性，只需要最小的代码修改。
+2. 性能：JedisCluster 的 mget 方法针对集群环境进行了优化，能够有效地处理跨节点的批量查询。
+3. 简洁：代码简洁明了，易于理解和维护。
+4. 错误处理：它自动处理了 Redis 集群中的错误和重试逻辑。
+5. 过滤空值：结果中的 null 值会被过滤掉，与您之前的实现保持一致。
+
+使用建议：
+
+1. 批量大小：虽然这个方法可以一次处理大量的 key，但是建议将批量大小限制在一个合理的范围内（例如 1000 个 key）。如果需要处理的 key 数量非常大，可以考虑分批处理。
+2. 监控：实施监控来跟踪这个方法的性能表现。您可以使用 Spring Boot Actuator 和 Micrometer 来收集性能指标。
+3. 错误处理：虽然 JedisCluster 会自动处理大多数错误，但是您可能还是需要添加一些额外的错误处理逻辑，特别是对于网络超时或连接问题。
+4. 缓存优化：考虑在应用层面添加本地缓存（如 Caffeine），以进一步提高频繁访问的数据的查询速度。
+5. key 设计：重新审视您的 key 设计，看是否可以通过优化 key 的结构来提高查询效率。例如，将相关的数据分组到 Hash 结构中。
+
+这个方法应该能显著提高您在 Redis 集群环境中的批量查询性能。如果在实施过程中遇到任何问题，或者需要进一步的优化，请随时告诉我。
+
