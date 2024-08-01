@@ -804,3 +804,155 @@ Copytry {
 
 这个实现应该能够在您当前的环境中显著提高批量查询的性能。如果您在实施过程中遇到任何问题，或者需要进一步的优化，请随时告诉我。
 
+## Prompt:
+大于2000时按通配的前4个分号分割的衣符取值
+
+## Response:
+理解您的需求。当 key 的数量大于 2000 时，我们需要按照前 4 个分号分割的前缀进行分组，然后使用通配符来批量获取值。这种方法可以有效减少 Redis 的查询次数，提高性能。以下是一个针对您需求优化的实现：
+
+```java
+Copyimport org.springframework.data.redis.core.RedisCallback;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.stereotype.Repository;
+
+import java.util.*;
+import java.util.stream.Collectors;
+
+@Repository
+public class OptimizedRedisRepository {
+
+    private final StringRedisTemplate redisTemplate;
+
+    public OptimizedRedisRepository(StringRedisTemplate redisTemplate) {
+        this.redisTemplate = redisTemplate;
+    }
+
+    public List<String> getMultipleValues(List<String> keys) {
+        if (keys.size() <= 2000) {
+            return getValuesDirectly(keys);
+        } else {
+            return getValuesWithWildcard(keys);
+        }
+    }
+
+    private List<String> getValuesDirectly(List<String> keys) {
+        return redisTemplate.execute((RedisCallback<List<String>>) connection -> {
+            List<byte[]> rawValues = new ArrayList<>(keys.size());
+            for (String key : keys) {
+                rawValues.add(connection.get(key.getBytes()));
+            }
+            return rawValues.stream()
+                    .map(value -> value != null ? new String(value) : null)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+        });
+    }
+
+    private List<String> getValuesWithWildcard(List<String> keys) {
+        Map<String, List<String>> groupedKeys = groupKeysByPrefix(keys);
+        
+        return redisTemplate.execute((RedisCallback<List<String>>) connection -> {
+            List<String> results = new ArrayList<>();
+            for (Map.Entry<String, List<String>> entry : groupedKeys.entrySet()) {
+                String prefix = entry.getKey();
+                List<String> groupKeys = entry.getValue();
+                
+                Set<byte[]> matchedKeys = connection.keys((prefix + "*").getBytes());
+                for (byte[] matchedKey : matchedKeys) {
+                    byte[] value = connection.get(matchedKey);
+                    if (value != null) {
+                        String keyString = new String(matchedKey);
+                        if (groupKeys.contains(keyString)) {
+                            results.add(new String(value));
+                        }
+                    }
+                }
+            }
+            return results;
+        });
+    }
+
+    private Map<String, List<String>> groupKeysByPrefix(List<String> keys) {
+        return keys.stream().collect(Collectors.groupingBy(this::extractPrefix));
+    }
+
+    private String extractPrefix(String key) {
+        String[] parts = key.split(":", 5);
+        return String.join(":", Arrays.copyOf(parts, Math.min(parts.length, 4)));
+    }
+}
+```
+
+这个实现的主要特点：
+
+1. 动态策略：根据 key 的数量选择不同的查询策略。
+2. 直接查询：当 key 数量不超过 2000 时，直接使用批量 get 操作。
+3. 通配符查询：当 key 数量超过 2000 时，按前缀分组，然后使用通配符查询。
+4. 前缀提取：提取每个 key 的前 4 个分号分割的部分作为前缀。
+5. 结果过滤：确保只返回原始 key 列表中存在的 key 的值。
+
+使用建议：
+
+1. 监控和调优：密切关注这个方法的性能表现，特别是在 key 数量超过 2000 的情况下。您可能需要调整这个阈值以获得最佳性能。
+2. 错误处理：添加适当的错误处理逻辑，例如：
+
+```java
+Copytry {
+    return getMultipleValues(keys);
+} catch (Exception e) {
+    logger.error("Error fetching multiple values from Redis", e);
+    // 可以选择重试、返回部分结果，或者抛出自定义异常
+    throw new RedisOperationException("Failed to fetch values from Redis", e);
+}
+```
+
+3. 本地缓存：考虑添加本地缓存来进一步提高性能，特别是对于频繁访问的 key：
+
+```java
+Copyprivate LoadingCache<String, String> localCache = CacheBuilder.newBuilder()
+    .maximumSize(10000)
+    .expireAfterWrite(5, TimeUnit.MINUTES)
+    .build(new CacheLoader<String, String>() {
+        @Override
+        public String load(String key) throws Exception {
+            return redisTemplate.opsForValue().get(key);
+        }
+    });
+
+public String getValueWithLocalCache(String key) {
+    try {
+        return localCache.get(key);
+    } catch (ExecutionException e) {
+        logger.error("Error getting value from local cache", e);
+        return null;
+    }
+}
+```
+
+4. 性能监控：实现一个简单的性能监控机制：
+
+```java
+Copypublic List<String> getMultipleValuesWithMonitoring(List<String> keys) {
+    long startTime = System.currentTimeMillis();
+    List<String> results = getMultipleValues(keys);
+    long endTime = System.currentTimeMillis();
+    logger.info("Fetched {} keys in {} ms", keys.size(), (endTime - startTime));
+    return results;
+}
+```
+
+5. 批处理：如果需要处理的 key 总数非常大，可以考虑进行批处理：
+
+```java
+Copypublic List<String> getMultipleValuesInBatches(List<String> keys, int batchSize) {
+    List<String> allResults = new ArrayList<>();
+    for (int i = 0; i < keys.size(); i += batchSize) {
+        List<String> batchKeys = keys.subList(i, Math.min(i + batchSize, keys.size()));
+        allResults.addAll(getMultipleValues(batchKeys));
+    }
+    return allResults;
+}
+```
+
+这个实现应该能够有效处理大量 key 的情况，同时通过使用通配符查询来优化性能。如果您在使用过程中遇到任何问题或需要进一步优化，请随时告诉我。
+
