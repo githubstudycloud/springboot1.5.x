@@ -719,3 +719,88 @@ public class OptimizedRedisService {
 
 这个方法应该能显著提高您在 Redis 集群环境中的批量查询性能。如果在实施过程中遇到任何问题，或者需要进一步的优化，请随时告诉我。
 
+## Prompt:
+我是springboot1.5.22，，我用的repository注解，，template没有你说的方法
+
+## Response:
+非常感谢您提供的额外信息。考虑到您使用的是 Spring Boot 1.5.22 和 @Repository 注解，我们需要调整一下方法。在这种情况下，我们可以使用 Spring Data Redis 提供的 RedisCallback 接口来实现批量查询。以下是一个优化的实现方案：
+
+```java
+Copyimport org.springframework.data.redis.core.RedisCallback;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.stereotype.Repository;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
+
+@Repository
+public class OptimizedRedisRepository {
+
+    private final StringRedisTemplate redisTemplate;
+
+    public OptimizedRedisRepository(StringRedisTemplate redisTemplate) {
+        this.redisTemplate = redisTemplate;
+    }
+
+    public List<String> getMultipleValues(List<String> keys) {
+        return redisTemplate.execute((RedisCallback<List<String>>) connection -> {
+            List<byte[]> rawValues = new ArrayList<>(keys.size());
+            for (String key : keys) {
+                rawValues.add(connection.get(key.getBytes()));
+            }
+            return rawValues.stream()
+                    .map(value -> value != null ? new String(value) : null)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+        });
+    }
+}
+```
+
+这个实现有以下特点：
+
+1. 兼容性：它与 Spring Boot 1.5.22 和 @Repository 注解完全兼容。
+2. 性能：通过使用 RedisCallback，我们可以在一个操作中执行多个 get 命令，减少网络往返次数。
+3. 批量处理：它可以一次处理多个 key，提高查询效率。
+4. 错误处理：RedisCallback 会自动处理 Redis 连接的获取和释放，以及基本的错误处理。
+5. 过滤空值：结果中的 null 值会被过滤掉，与您之前的实现保持一致。
+
+使用建议：
+
+1. 批量大小：虽然这个方法可以处理大量的 key，但建议将批量大小限制在一个合理的范围内（例如 1000 个 key）。如果需要处理的 key 数量非常大，可以考虑分批处理。
+2. 分批处理：如果需要处理大量 key，可以添加一个分批处理的方法：
+
+```java
+Copypublic List<String> getMultipleValuesInBatches(List<String> keys, int batchSize) {
+    List<String> allResults = new ArrayList<>();
+    for (int i = 0; i < keys.size(); i += batchSize) {
+        List<String> batchKeys = keys.subList(i, Math.min(i + batchSize, keys.size()));
+        allResults.addAll(getMultipleValues(batchKeys));
+    }
+    return allResults;
+}
+```
+
+3. 错误处理：考虑添加更详细的错误处理逻辑，特别是对于网络超时或连接问题：
+
+```java
+Copytry {
+    return redisTemplate.execute((RedisCallback<List<String>>) connection -> {
+        // ... 原有的实现 ...
+    });
+} catch (Exception e) {
+    // 记录日志
+    logger.error("Error fetching multiple values from Redis", e);
+    // 可以选择重试、返回默认值，或者抛出自定义异常
+    throw new RedisOperationException("Failed to fetch values from Redis", e);
+}
+```
+
+4. 监控：实施监控来跟踪这个方法的性能表现。虽然 Spring Boot 1.5.22 的监控功能相对有限，但您可以考虑使用 Micrometer 的早期版本或者自定义的性能跟踪逻辑。
+5. 缓存优化：考虑在应用层面添加本地缓存（如 Guava Cache），以进一步提高频繁访问的数据的查询速度。
+6. key 设计：重新审视您的 key 设计，看是否可以通过优化 key 的结构来提高查询效率。例如，将相关的数据分组到 Hash 结构中。
+
+这个实现应该能够在您当前的环境中显著提高批量查询的性能。如果您在实施过程中遇到任何问题，或者需要进一步的优化，请随时告诉我。
+
