@@ -1389,3 +1389,160 @@ Copytry {
 
 这个实现通过批量通配查询和并发处理，应该能够高效地处理大量 key 的情况，特别是当这些 key 有相似前缀时。它减少了与 Redis 的交互次数，同时利用并发处理提高了整体性能。如果您在使用过程中遇到任何问题或需要进一步优化，请随时告诉我。
 
+## Prompt:
+用autowired注入redistemplate
+
+## Response:
+当然，我们可以使用 @Autowired 注解来注入 RedisTemplate。这是 Spring 依赖注入的一种常见方式，特别适合在 Spring Boot 1.5.22 的环境中使用。以下是修改后的代码：
+
+```java
+Copyimport org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisCallback;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.stereotype.Repository;
+
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.stream.Collectors;
+
+@Repository
+public class OptimizedRedisRepository {
+
+    @Autowired
+    private StringRedisTemplate redisTemplate;
+
+    private final ExecutorService executorService;
+
+    public OptimizedRedisRepository() {
+        this.executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+    }
+
+    public List<String> getMultipleValues(List<String> keys) {
+        Map<String, List<String>> groupedKeys = groupKeysByPrefix(keys);
+        
+        List<CompletableFuture<Map<String, String>>> futures = groupedKeys.entrySet().stream()
+            .map(entry -> CompletableFuture.supplyAsync(
+                () -> getValuesForPrefix(entry.getKey()),
+                executorService
+            ))
+            .collect(Collectors.toList());
+
+        Map<String, String> allResults = futures.stream()
+            .map(CompletableFuture::join)
+            .flatMap(map -> map.entrySet().stream())
+            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
+
+        return keys.stream()
+            .map(allResults::get)
+            .filter(Objects::nonNull)
+            .collect(Collectors.toList());
+    }
+
+    private Map<String, String> getValuesForPrefix(String prefix) {
+        return redisTemplate.execute((RedisCallback<Map<String, String>>) connection -> {
+            Set<byte[]> matchedKeys = connection.keys((prefix + "*").getBytes());
+            if (matchedKeys.isEmpty()) {
+                return Collections.emptyMap();
+            }
+
+            byte[][] keysArray = matchedKeys.toArray(new byte[0][]);
+            List<byte[]> rawValues = connection.mGet(keysArray);
+
+            Map<String, String> results = new HashMap<>();
+            for (int i = 0; i < keysArray.length; i++) {
+                String keyString = new String(keysArray[i]);
+                if (rawValues.get(i) != null) {
+                    results.put(keyString, new String(rawValues.get(i)));
+                }
+            }
+            return results;
+        });
+    }
+
+    private Map<String, List<String>> groupKeysByPrefix(List<String> keys) {
+        return keys.stream().collect(Collectors.groupingBy(this::extractPrefix));
+    }
+
+    private String extractPrefix(String key) {
+        String[] parts = key.split(":", 5);
+        return String.join(":", Arrays.copyOf(parts, Math.min(parts.length, 4)));
+    }
+
+    public void shutdown() {
+        executorService.shutdown();
+        try {
+            if (!executorService.awaitTermination(60, TimeUnit.SECONDS)) {
+                executorService.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executorService.shutdownNow();
+        }
+    }
+}
+```
+
+主要变更：
+
+1. 使用 @Autowired 注解来注入 StringRedisTemplate：
+
+```java
+Copy@Autowired
+private StringRedisTemplate redisTemplate;
+```
+
+2. 移除了构造函数中的 RedisTemplate 参数：
+
+```java
+Copypublic OptimizedRedisRepository() {
+    this.executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+}
+```
+
+这种方式使用了 Spring 的自动装配特性，Spring 容器会自动注入 StringRedisTemplate 的实例。
+
+使用建议：
+
+1. 确保在 Spring Boot 配置中正确设置了 Redis 连接信息，例如在 application.properties 或 application.yml 文件中：
+
+```yaml
+Copyspring:
+  redis:
+    host: localhost
+    port: 6379
+    # 其他 Redis 配置...
+```
+
+2. 如果您的项目使用 Java 配置而不是自动配置，确保有一个配置类来创建 RedisTemplate bean：
+
+```java
+Copy@Configuration
+public class RedisConfig {
+    @Bean
+    public StringRedisTemplate stringRedisTemplate(RedisConnectionFactory redisConnectionFactory) {
+        StringRedisTemplate template = new StringRedisTemplate();
+        template.setConnectionFactory(redisConnectionFactory);
+        return template;
+    }
+}
+```
+
+3. 考虑使用 @PostConstruct 注解来初始化 ExecutorService，这样可以确保在所有依赖注入完成后再创建线程池：
+
+```java
+Copy@PostConstruct
+public void init() {
+    this.executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+}
+```
+
+4. 使用 @PreDestroy 注解来确保在 Bean 销毁时关闭 ExecutorService：
+
+```java
+Copy@PreDestroy
+public void destroy() {
+    shutdown();
+}
+```
+
+这个实现应该能够在 Spring Boot 1.5.22 环境中正常工作，利用 Spring 的依赖注入特性来管理 RedisTemplate。如果您在使用过程中遇到任何问题或需要进一步优化，请随时告诉我。
+
