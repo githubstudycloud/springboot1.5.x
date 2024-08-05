@@ -622,3 +622,106 @@ Copypublic class FlexibleCacheManager implements CacheManager {
 
 如果您有任何其他的需求或者需要进一步的调整,请随时告诉我。
 
+## Prompt:
+如果缓存有问题，怎么在参数里指定一个参数用于重新生成缓存
+
+## Response:
+这是一个很好的问题。我们可以在JSON参数中添加一个参数来指示是否需要重新生成缓存。这样，即使缓存中已经存在数据，我们也可以强制刷新它。让我们修改代码来实现这个功能：
+
+1. 首先，修改 TokenParams 类来包含一个新的字段：
+
+```java
+Copyprivate static class TokenParams {
+    private String key;
+    private boolean forceRefresh;
+    // 其他必要的参数
+
+    // getters and setters
+    public String getKey() {
+        return key;
+    }
+
+    public void setKey(String key) {
+        this.key = key;
+    }
+
+    public boolean isForceRefresh() {
+        return forceRefresh;
+    }
+
+    public void setForceRefresh(boolean forceRefresh) {
+        this.forceRefresh = forceRefresh;
+    }
+}
+```
+
+2. 然后，修改 getToken 方法来使用这个新参数：
+
+```java
+Copypublic String getToken(String type, String jsonParams) {
+    try {
+        TokenParams params = objectMapper.readValue(jsonParams, TokenParams.class);
+        String cacheKey = type + ":" + params.getKey();
+        Cache cache = getCache(type);
+        
+        String token = null;
+        if (!params.isForceRefresh()) {
+            token = cache.get(cacheKey, String.class);
+        }
+        
+        if (token == null) {
+            token = callApiToGetToken(type, params);
+            cache.put(cacheKey, token);
+        }
+        
+        return token;
+    } catch (Exception e) {
+        e.printStackTrace();
+        return null;
+    }
+}
+```
+
+这个修改后的 getToken 方法会检查 forceRefresh 参数。如果这个参数为 true，它会跳过缓存查询，直接调用 API 获取新的 token。
+
+3. 在使用这个缓存管理器的服务中，您可以这样调用它：
+
+```java
+Copy@Service
+public class TokenService {
+
+    @Autowired
+    private FlexibleCacheManager cacheManager;
+
+    public String getToken(String type, String key, boolean forceRefresh) {
+        TokenParams params = new TokenParams();
+        params.setKey(key);
+        params.setForceRefresh(forceRefresh);
+        
+        String jsonParams = null;
+        try {
+            jsonParams = new ObjectMapper().writeValueAsString(params);
+        } catch (JsonProcessingException e) {
+            e.printStackTrace();
+            return null;
+        }
+        
+        return cacheManager.getToken(type, jsonParams);
+    }
+}
+```
+
+现在，您可以通过设置 forceRefresh 参数来控制是否强制刷新缓存：
+
+```java
+Copy// 使用缓存（如果存在）
+String token = tokenService.getToken("someType", "someKey", false);
+
+// 强制刷新缓存
+String freshToken = tokenService.getToken("someType", "someKey", true);
+```
+
+这样，当您遇到缓存问题或需要确保获取最新数据时，可以通过设置 forceRefresh 为 true 来绕过缓存并获取新的 token。
+
+这种方法为您提供了更大的灵活性，允许在需要时手动控制缓存的刷新，同时在大多数情况下仍然保持缓存的性能优势。
+
