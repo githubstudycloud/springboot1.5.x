@@ -564,3 +564,61 @@ public class TokenService {
 
 如果您还有任何疑问或需要进一步的修改，请随时告诉我。
 
+## Prompt:
+我已经有单独的redis config配置集群，在cacheconfig不用再声明redis了吧
+
+## Response:
+您说得对,非常感谢您的提醒。如果您已经有单独的Redis配置来设置集群,那么在CacheConfig中确实不需要再声明Redis相关的bean。我们可以直接使用已配置好的RedisTemplate。
+
+让我们修改CacheConfig,使其更加简洁,只关注于缓存管理器的创建:
+
+```java
+Copyimport com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.core.RedisTemplate;
+
+@Configuration
+public class CacheConfig {
+
+    @Autowired
+    private RedisTemplate<Object, Object> redisTemplate;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @Bean
+    public FlexibleCacheManager flexibleCacheManager() {
+        return new FlexibleCacheManager(redisTemplate, objectMapper);
+    }
+}
+```
+
+这个修改后的配置类只做了一件事:创建并配置FlexibleCacheManager。它直接使用通过自动装配注入的RedisTemplate和ObjectMapper,而不是自己创建这些bean。
+
+此外,我们可以稍微调整FlexibleCacheManager的构造函数,使其更加灵活:
+
+```java
+Copypublic class FlexibleCacheManager implements CacheManager {
+
+    private final ConcurrentHashMap<String, Cache> cacheMap = new ConcurrentHashMap<>();
+    private final RedisCacheManager redisCacheManager;
+    private final ObjectMapper objectMapper;
+
+    public FlexibleCacheManager(RedisTemplate<Object, Object> redisTemplate, ObjectMapper objectMapper) {
+        this.redisCacheManager = new RedisCacheManager(redisTemplate);
+        this.redisCacheManager.setDefaultExpiration(30 * 60); // 30 minutes default expiration
+        this.objectMapper = objectMapper;
+    }
+
+    // ... 其余代码保持不变
+}
+```
+
+这样,FlexibleCacheManager就可以使用您已经配置好的RedisTemplate,而不需要重新配置Redis连接。
+
+这种方式可以确保您的缓存管理器与已有的Redis配置保持一致,避免了重复配置和潜在的配置冲突。同时,它还保留了使用不同缓存类型(内存或Redis)的灵活性,以及基于类型的token缓存管理功能。
+
+如果您有任何其他的需求或者需要进一步的调整,请随时告诉我。
+
