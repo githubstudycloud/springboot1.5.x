@@ -355,3 +355,212 @@ public class TokenService {
 
 这个设计提供了灵活性，允许您使用不同的类型和参数来管理缓存，同时不会影响现有的其他缓存管理。如果您需要进一步的定制或有任何问题，请随时告诉我。
 
+## Prompt:
+之前那个兼容redis和内存的机制保留，还有后面加了个自定义缓存redis实现是干什么
+
+## Response:
+非常抱歉我的解释不够清晰。让我重新梳理一下设计，并解释每个部分的作用。
+
+1. 兼容Redis和内存的机制
+
+您说得对，我们应该保留之前设计的兼容Redis和内存缓存的机制。这种灵活性很有价值。我们可以在新的设计中继续使用这种机制。
+
+2. 自定义Redis缓存实现
+
+我添加了一个自定义的Redis缓存实现（TypeBasedRedisCache）是为了实现以下功能：
+
+* 在缓存键前添加类型前缀，以便在同一个Redis实例中隔离不同类型的缓存。
+* 保持与Spring Cache接口的兼容性，同时添加我们需要的自定义行为。
+
+考虑到您的需求，我们可以优化设计。以下是修改后的实现，它保留了Redis和内存缓存的兼容性，同时添加了基于类型的缓存管理：
+
+```java
+Copyimport com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.concurrent.ConcurrentMapCache;
+import org.springframework.data.redis.cache.RedisCache;
+import org.springframework.data.redis.cache.RedisCacheManager;
+import org.springframework.data.redis.core.RedisTemplate;
+
+import java.util.Collection;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
+
+public class FlexibleCacheManager implements CacheManager {
+
+    private final ConcurrentHashMap<String, Cache> cacheMap = new ConcurrentHashMap<>();
+    private final RedisCacheManager redisCacheManager;
+    private final ObjectMapper objectMapper;
+
+    public FlexibleCacheManager(RedisTemplate<Object, Object> redisTemplate, ObjectMapper objectMapper) {
+        this.redisCacheManager = new RedisCacheManager(redisTemplate);
+        this.redisCacheManager.setDefaultExpiration(30 * 60); // 30 minutes default expiration
+        this.objectMapper = objectMapper;
+    }
+
+    public String getToken(String type, String jsonParams) {
+        try {
+            TokenParams params = objectMapper.readValue(jsonParams, TokenParams.class);
+            String cacheKey = type + ":" + params.getKey();
+            Cache cache = getCache(type);
+            
+            String token = cache.get(cacheKey, String.class);
+            if (token != null) {
+                return token;
+            }
+            
+            token = callApiToGetToken(type, params);
+            cache.put(cacheKey, token);
+            return token;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    @Override
+    public Cache getCache(String name) {
+        return cacheMap.computeIfAbsent(name, this::createCache);
+    }
+
+    private Cache createCache(String name) {
+        try {
+            CacheConfig config = objectMapper.readValue(name, CacheConfig.class);
+            if ("inmemory".equals(config.getType())) {
+                return new ConcurrentMapCache(config.getName());
+            } else if ("redis".equals(config.getType())) {
+                RedisCache redisCache = (RedisCache) redisCacheManager.getCache(config.getName());
+                return new TypeBasedRedisCache(redisCache, config.getName());
+            }
+        } catch (Exception e) {
+            // 如果解析失败，默认使用Redis缓存
+            RedisCache redisCache = (RedisCache) redisCacheManager.getCache(name);
+            return new TypeBasedRedisCache(redisCache, name);
+        }
+        return null;
+    }
+
+    @Override
+    public Collection<String> getCacheNames() {
+        return cacheMap.keySet();
+    }
+
+    // 内部类，用于解析JSON配置
+    private static class CacheConfig {
+        private String type;
+        private String name;
+
+        // getters and setters
+    }
+
+    // 内部类，用于解析JSON参数
+    private static class TokenParams {
+        private String key;
+        // 其他必要的参数
+
+        // getters and setters
+    }
+
+    // 这个方法需要根据实际情况实现，用于调用不同的接口获取token
+    private String callApiToGetToken(String type, TokenParams params) {
+        // 根据type和params调用相应的API获取token
+        return "dummy-token-" + type + "-" + params.getKey();
+    }
+
+    // 自定义的Redis缓存实现，用于添加类型前缀
+    private static class TypeBasedRedisCache implements Cache {
+        private final RedisCache delegate;
+        private final String type;
+
+        public TypeBasedRedisCache(RedisCache delegate, String type) {
+            this.delegate = delegate;
+            this.type = type;
+        }
+
+        @Override
+        public String getName() {
+            return delegate.getName();
+        }
+
+        @Override
+        public Object getNativeCache() {
+            return delegate.getNativeCache();
+        }
+
+        @Override
+        public ValueWrapper get(Object key) {
+            return delegate.get(type + ":" + key);
+        }
+
+        @Override
+        public <T> T get(Object key, Class<T> type) {
+            return delegate.get(this.type + ":" + key, type);
+        }
+
+        @Override
+        public <T> T get(Object key, Callable<T> valueLoader) {
+            return delegate.get(type + ":" + key, valueLoader);
+        }
+
+        @Override
+        public void put(Object key, Object value) {
+            delegate.put(type + ":" + key, value);
+        }
+
+        @Override
+        public ValueWrapper putIfAbsent(Object key, Object value) {
+            return delegate.putIfAbsent(type + ":" + key, value);
+        }
+
+        @Override
+        public void evict(Object key) {
+            delegate.evict(type + ":" + key);
+        }
+
+        @Override
+        public void clear() {
+            delegate.clear();
+        }
+    }
+}
+```
+
+这个实现有以下特点：
+
+1. 保留了兼容Redis和内存缓存的机制。您可以通过JSON配置指定使用哪种类型的缓存。
+2. 添加了`getToken`方法，允许通过类型和JSON参数获取token。
+3. 使用了自定义的`TypeBasedRedisCache`来为Redis缓存键添加类型前缀，实现了不同类型缓存的隔离。
+4. 默认使用Redis缓存，过期时间为30分钟。
+5. 保持了与Spring的CacheManager接口的兼容性，不会影响其他缓存管理器的使用。
+
+使用这个缓存管理器的方式：
+
+```java
+Copy@Configuration
+public class CacheConfig {
+
+    @Bean
+    public FlexibleCacheManager flexibleCacheManager(RedisTemplate<Object, Object> redisTemplate, ObjectMapper objectMapper) {
+        return new FlexibleCacheManager(redisTemplate, objectMapper);
+    }
+}
+
+@Service
+public class TokenService {
+
+    @Autowired
+    private FlexibleCacheManager cacheManager;
+
+    public String getToken(String type, String jsonParams) {
+        return cacheManager.getToken(type, jsonParams);
+    }
+}
+```
+
+这个设计既保留了之前的灵活性，又添加了基于类型的token缓存管理。您可以通过JSON配置选择使用内存缓存或Redis缓存，同时可以使用`getToken`方法来获取特定类型的token。
+
+自定义的Redis缓存实现（TypeBasedRedisCache）的作用是在Redis的键前添加类型前缀，这样可以在同一个Redis实例中隔离不同类型的缓存，避免键冲突，并使得按类型管理缓存更加方便。
+
+如果您还有任何疑问或需要进一步的修改，请随时告诉我。
+
