@@ -1640,3 +1640,178 @@ Copy<?xml version="1.0" encoding="UTF-8"?>
 
 如果您需要任何进一步的调整、解释或有其他安全相关的问题，请随时告诉我。保持依赖项的更新对于维护应用程序的安全性至关重要。
 
+## Prompt:
+你没把原来的版本排除啊，sshd-osgi，-sftp等等，重新改下吧，tomcat用9.0.91frame-work用5.3.34，log4j用2.17.2
+
+## Response:
+您说得对，我确实遗漏了排除原有版本和一些具体的依赖。非常感谢您的细心指出。我会根据您的要求重新调整 pom.xml，包括排除旧版本、更新到指定版本，以及添加之前遗漏的依赖。以下是更新后的完整 pom.xml：
+
+```xml
+Copy<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>2.7.18</version>
+        <relativePath/>
+    </parent>
+    
+    <groupId>com.example</groupId>
+    <artifactId>config-server</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>config-server</name>
+    <description>Spring Cloud Config Server</description>
+    
+    <properties>
+        <java.version>1.8</java.version>
+        <spring-cloud.version>2021.0.8</spring-cloud.version>
+        <spring-framework.version>5.3.34</spring-framework.version>
+        <spring-security.version>5.8.8</spring-security.version>
+        <sshd.version>2.10.0</sshd.version>
+        <bouncycastle.version>1.70</bouncycastle.version>
+        <tomcat.version>9.0.91</tomcat.version>
+        <log4j2.version>2.17.2</log4j2.version>
+    </properties>
+    
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-config-server</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-starter-logging</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.sshd</groupId>
+                    <artifactId>sshd-core</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        
+        <!-- Log4j2 instead of Logback -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-log4j2</artifactId>
+            <version>${spring-boot.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-api</artifactId>
+            <version>${log4j2.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-core</artifactId>
+            <version>${log4j2.version}</version>
+        </dependency>
+        
+        <!-- Updated Spring Framework -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-core</artifactId>
+            <version>${spring-framework.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-context</artifactId>
+            <version>${spring-framework.version}</version>
+        </dependency>
+        
+        <!-- Updated Spring Security -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-core</artifactId>
+            <version>${spring-security.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-config</artifactId>
+            <version>${spring-security.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-web</artifactId>
+            <version>${spring-security.version}</version>
+        </dependency>
+        
+        <!-- Updated SSHD -->
+        <dependency>
+            <groupId>org.apache.sshd</groupId>
+            <artifactId>sshd-core</artifactId>
+            <version>${sshd.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.sshd</groupId>
+            <artifactId>sshd-sftp</artifactId>
+            <version>${sshd.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.sshd</groupId>
+            <artifactId>sshd-osgi</artifactId>
+            <version>${sshd.version}</version>
+        </dependency>
+        
+        <!-- Updated Bouncy Castle (JDK15on) -->
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcprov-jdk15on</artifactId>
+            <version>${bouncycastle.version}</version>
+        </dependency>
+        
+        <!-- Explicitly declare Tomcat version -->
+        <dependency>
+            <groupId>org.apache.tomcat.embed</groupId>
+            <artifactId>tomcat-embed-core</artifactId>
+            <version>${tomcat.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.tomcat.embed</groupId>
+            <artifactId>tomcat-embed-websocket</artifactId>
+            <version>${tomcat.version}</version>
+        </dependency>
+    </dependencies>
+    
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>${spring-cloud.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+    
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+```
+
+主要更新和修改：
+
+1. 排除了 spring-cloud-config-server 中的 sshd-core 旧版本。
+2. 更新了 Spring Framework 到 5.3.34 版本。
+3. 更新了 Tomcat 到 9.0.91 版本。
+4. 指定了 Log4j2 的版本为 2.17.2，并添加了相关依赖。
+5. 添加了之前遗漏的 sshd-sftp 和 sshd-osgi 依赖。
+6. 保持其他版本不变，因为它们已经是较新的安全版本。
+
+注意事项：
+
+1. 确保在应用这些更改后，您的应用程序仍然能正常工作。
+2. 在生产环境中应用之前，请在开发和测试环境中充分测试这些更改。
+3. 定期检查这些依赖项的最新安全版本，因为安全补丁经常发布。
+
+如果您需要任何进一步的调整或有其他问题，请随时告诉我。保持依赖项的更新对于维护应用程序的安全性至关重要。
+
