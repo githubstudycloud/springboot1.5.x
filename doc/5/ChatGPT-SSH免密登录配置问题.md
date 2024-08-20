@@ -141,3 +141,70 @@ journalctl -u sshd
 
 这些步骤应帮助你解决用户 B 无法以免密方式登录用户 C 的账户的问题。如果问题依旧存在，请继续检查日志以找出可能的错误原因。
 
+## Prompt:
+用3种算法生成了密钥，有rsa，ecdsa，ed25519 ，，b登录报ssh-rsanot in pubkey
+
+## Response:
+当你遇到“ssh-rsa not in pubkey”这类错误时，这通常指的是 SSH 服务端或客户端配置不支持或未正确识别使用的密钥算法。考虑到你使用了 RSA、ECDSA 和 ED25519 三种算法生成密钥，我们可以按以下步骤进行故障排除和解决：
+
+### 1\. 确认 SSH 版本
+
+由于较新的 SSH 版本可能限制或不再默认支持某些密钥算法（如 RSA），首先应确认服务器和客户端的 SSH 版本，以确保它们支持所使用的密钥类型。你可以通过运行以下命令查看 SSH 版本：
+
+```bash
+ssh -V
+```
+
+### 2\. 检查客户端和服务器的 SSH 配置
+
+* **客户端配置**：检查客户端的 `~/.ssh/config` 或全局 `/etc/ssh/ssh_config` 文件，确认是否有限制使用某种密钥类型的配置。例如，查看是否有类似 `IdentitiesOnly yes` 和 `IdentityFile` 指向特定密钥的设置。
+* **服务器配置**：检查服务器的 `/etc/ssh/sshd_config` 文件，确保 `PubkeyAcceptedKeyTypes` 包含或未排除你使用的密钥类型。例如，如果使用 RSA，确保 `ssh-rsa` 在列出的类型中。
+
+如果进行了更改，记得重启 SSH 服务：
+
+```bash
+sudo systemctl restart sshd
+```
+
+### 3\. 使用指定密钥文件尝试连接
+
+如果用户 B 使用的是 RSA 密钥，尝试明确指定密钥文件进行连接：
+
+```bash
+ssh -i /path/to/rsa_private_key userC@server
+```
+
+确保替换 `/path/to/rsa_private_key` 为实际的 RSA 私钥文件路径。
+
+### 4\. 重新生成并部署密钥
+
+如果问题依旧，尝试重新生成密钥并确保正确部署到目标用户的 `authorized_keys` 文件中：
+
+* 生成新的 RSA 密钥：
+  ```bash
+  ssh-keygen -t rsa -b 4096
+  ```
+* 再次使用 `ssh-copy-id` 将新密钥复制到服务器：
+  ```bash
+  ssh-copy-id -i ~/.ssh/id_rsa.pub userC@server
+  ```
+
+### 5\. 检查密钥和权限
+
+* 确认密钥文件 `.ssh/id_rsa` 和 `.ssh/authorized_keys` 的权限设置正确。
+* 使用以下命令查看权限，并在必要时调整：
+  ```bash
+  chmod 600 ~/.ssh/id_rsa
+  chmod 600 ~/.ssh/authorized_keys
+  ```
+
+### 6\. 查看连接时的详细输出
+
+使用 `-v` 参数查看 SSH 连接尝试的详细输出，这可以提供更多关于错误的线索：
+
+```bash
+ssh -v -i /path/to/rsa_private_key userC@server
+```
+
+以上步骤应该能帮助你解决问题。如果错误依然存在，详细的 `-v` 输出可能会指明具体的问题所在。
+
