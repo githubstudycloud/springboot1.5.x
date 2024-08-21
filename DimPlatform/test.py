@@ -1,8 +1,10 @@
+理解了，我们需要将 # 号后的文字作为接口名，并且需要调整响应文件的处理方式。让我们修改脚本以满足这些要求：
+
+```python
 import os
 import json
 import re
 from datetime import datetime
-
 
 def parse_http_file(file_path):
     with open(file_path, 'r', encoding='utf-8') as file:
@@ -14,11 +16,16 @@ def parse_http_file(file_path):
     for request in requests:
         lines = request.strip().split('\n')
         first_line = lines[0].strip()
-        if ' ' in first_line:
-            method, url = first_line.split(' ', 1)
+
+        # 提取接口名
+        interface_name = first_line.split('#', 1)[1].strip() if '#' in first_line else "未命名接口"
+
+        # 提取方法和URL
+        method_url_line = next((line for line in lines if ' http' in line.lower()), '')
+        if ' ' in method_url_line:
+            method, url = method_url_line.split(' ', 1)
         else:
-            method = first_line
-            url = "未指定URL"
+            method, url = "未知方法", "未知URL"
 
         headers = {}
         body = ''
@@ -40,10 +47,9 @@ def parse_http_file(file_path):
         if response_match:
             response_file = response_match.group(1).strip()
 
-        parsed_requests.append((method, url, headers, body, response_file))
+        parsed_requests.append((interface_name, method, url, headers, body, response_file))
 
     return parsed_requests
-
 
 def parse_json_body(body):
     print(f"Attempting to parse JSON body: {body}")  # 调试信息
@@ -55,7 +61,6 @@ def parse_json_body(body):
     except json.JSONDecodeError as e:
         print(f"JSON解析错误: {e}")  # 错误信息
         return []
-
 
 def extract_params(obj, prefix=''):
     params = []
@@ -76,12 +81,15 @@ def extract_params(obj, prefix=''):
         params.extend(extract_params(obj[0], f"{prefix}[]"))
     return params
 
-
-def get_latest_response_file(response_file):
+def get_latest_response_file(response_file, http_file_path):
     if not response_file:
         return None
 
-    dir_path = os.path.dirname(os.path.abspath(__file__))
+    dir_path = os.path.dirname(http_file_path)
+
+    full_response_path = os.path.join(dir_path, response_file)
+    if os.path.exists(full_response_path):
+        return full_response_path
 
     pattern = re.compile(rf'{re.escape(response_file.split(".")[0])}\..*\.txt')
 
@@ -98,14 +106,13 @@ def get_latest_response_file(response_file):
     latest_file = max(matching_files, key=lambda f: os.path.getmtime(os.path.join(dir_path, f)))
     return os.path.join(dir_path, latest_file)
 
-
 def generate_md_doc(http_file_path):
     parsed_requests = parse_http_file(http_file_path)
 
     md = "# API 接口文档\n\n"
 
-    for index, (method, url, headers, body, response_file) in enumerate(parsed_requests, 1):
-        md += f"## 接口 {index}\n\n"
+    for index, (interface_name, method, url, headers, body, response_file) in enumerate(parsed_requests, 1):
+        md += f"## {index}. {interface_name}\n\n"
         md += f"### 请求URL\n\n`{method} {url}`\n\n"
 
         if headers:
@@ -133,7 +140,7 @@ def generate_md_doc(http_file_path):
             md += "\n"
 
         if response_file:
-            latest_response_file = get_latest_response_file(response_file)
+            latest_response_file = get_latest_response_file(response_file, http_file_path)
             if latest_response_file and os.path.exists(latest_response_file):
                 md += "### 响应示例\n\n```\n"
                 with open(latest_response_file, 'r', encoding='utf-8') as file:
@@ -146,7 +153,6 @@ def generate_md_doc(http_file_path):
 
     return md
 
-
 # 使用示例
 http_file_path = 'C:\\Users\\rog\\AppData\\Roaming\\JetBrains\\IntelliJIdea2024.2\\scratches\\generated-requests.http'
 md_doc = generate_md_doc(http_file_path)
@@ -157,3 +163,20 @@ output_file = 'api_doc.md'
 with open(output_file, 'w', encoding='utf-8') as file:
     file.write(md_doc)
 print(f"Markdown文档已保存至 {output_file}")
+```
+
+主要的改动：
+
+1. 在 `parse_http_file` 函数中，我们现在提取 # 号后的文字作为接口名。
+
+2. 修改了请求方法和URL的提取方式，现在会查找包含 "http" 的行来确定方法和URL。
+
+3. 调整了 `get_latest_response_file` 函数，现在它使用HTTP文件的路径来查找响应文件。首先尝试直接查找响应文件，如果找不到，则尝试匹配模式。
+
+4. 在 `generate_md_doc` 函数中，我们现在使用提取的接口名作为每个接口的标题。
+
+这些修改应该能满足您的新要求。脚本现在会：
+- 使用 # 号后的文字作为接口名
+- 尝试在HTTP文件所在的目录中查找响应文件
+
+请再次运行这个脚本，看看是否能生成符合您期望的文档。如果还有任何问题或需要进一步的调整，请告诉我。
