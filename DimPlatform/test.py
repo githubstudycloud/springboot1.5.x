@@ -1,118 +1,60 @@
-理解了，我们需要将 # 号后的文字作为接口名，并且需要调整响应文件的处理方式。让我们修改脚本以满足这些要求：
+将Markdown转换为DOC（Word文档）格式需要使用一些额外的库。Python中常用的库是`python-docx`用于创建Word文档，以及`markdown`库用于解析Markdown。以下是如何实现这个功能的步骤：
+
+1. 首先，安装必要的库：
+
+```
+pip install python-docx markdown
+```
+
+2. 然后，我们需要修改脚本，添加Markdown到DOC的转换功能。以下是修改后的脚本：
 
 ```python
 import os
 import json
 import re
 from datetime import datetime
+from docx import Document
+from docx.shared import Inches
+import markdown
+from bs4 import BeautifulSoup
 
-def parse_http_file(file_path):
-    with open(file_path, 'r', encoding='utf-8') as file:
-        content = file.read()
+# ... [之前的函数保持不变] ...
 
-    requests = content.split('###')[1:]
-    parsed_requests = []
+def markdown_to_docx(md_content, output_file):
+    # 将Markdown转换为HTML
+    html = markdown.markdown(md_content)
 
-    for request in requests:
-        lines = request.strip().split('\n')
-        first_line = lines[0].strip()
+    # 创建一个新的Word文档
+    doc = Document()
 
-        # 提取接口名
-        interface_name = first_line.split('#', 1)[1].strip() if '#' in first_line else "未命名接口"
+    # 使用BeautifulSoup解析HTML
+    soup = BeautifulSoup(html, 'html.parser')
 
-        # 提取方法和URL
-        method_url_line = next((line for line in lines if ' http' in line.lower()), '')
-        if ' ' in method_url_line:
-            method, url = method_url_line.split(' ', 1)
-        else:
-            method, url = "未知方法", "未知URL"
+    for element in soup.find_all(['h1', 'h2', 'h3', 'p', 'ul', 'ol', 'li', 'pre']):
+        if element.name == 'h1':
+            doc.add_heading(element.text, level=1)
+        elif element.name == 'h2':
+            doc.add_heading(element.text, level=2)
+        elif element.name == 'h3':
+            doc.add_heading(element.text, level=3)
+        elif element.name == 'p':
+            doc.add_paragraph(element.text)
+        elif element.name in ['ul', 'ol']:
+            for li in element.find_all('li'):
+                doc.add_paragraph(li.text, style='List Bullet')
+        elif element.name == 'pre':
+            doc.add_paragraph(element.text, style='Code')
 
-        headers = {}
-        body = ''
-        response_file = None
-
-        header_end = next((i for i, line in enumerate(lines) if line.strip() == ''), len(lines))
-        for line in lines[1:header_end]:
-            if ': ' in line:
-                key, value = line.split(': ', 1)
-                headers[key] = value
-
-        body_start = header_end + 1
-        body_end = next((i for i in range(body_start, len(lines)) if lines[i].startswith('<>')), len(lines))
-
-        if body_start < body_end:
-            body = '\n'.join(lines[body_start:body_end]).strip()
-
-        response_match = re.search(r'<>\s*(.*\.txt)', request)
-        if response_match:
-            response_file = response_match.group(1).strip()
-
-        parsed_requests.append((interface_name, method, url, headers, body, response_file))
-
-    return parsed_requests
-
-def parse_json_body(body):
-    print(f"Attempting to parse JSON body: {body}")  # 调试信息
-    try:
-        json_body = json.loads(body)
-        params = extract_params(json_body)
-        print(f"Extracted params: {params}")  # 调试信息
-        return params
-    except json.JSONDecodeError as e:
-        print(f"JSON解析错误: {e}")  # 错误信息
-        return []
-
-def extract_params(obj, prefix=''):
-    params = []
-    if isinstance(obj, dict):
-        for key, value in obj.items():
-            new_prefix = f"{prefix}.{key}" if prefix else key
-            if isinstance(value, (dict, list)):
-                params.extend(extract_params(value, new_prefix))
-            else:
-                params.append({
-                    'name': new_prefix,
-                    'type': type(value).__name__,
-                    'description': '',
-                    'required': '',
-                    'example': str(value)
-                })
-    elif isinstance(obj, list) and len(obj) > 0:
-        params.extend(extract_params(obj[0], f"{prefix}[]"))
-    return params
-
-def get_latest_response_file(response_file, http_file_path):
-    if not response_file:
-        return None
-
-    dir_path = os.path.dirname(http_file_path)
-
-    full_response_path = os.path.join(dir_path, response_file)
-    if os.path.exists(full_response_path):
-        return full_response_path
-
-    pattern = re.compile(rf'{re.escape(response_file.split(".")[0])}\..*\.txt')
-
-    try:
-        matching_files = [f for f in os.listdir(dir_path) if pattern.match(f)]
-    except OSError as e:
-        print(f"错误: 无法列出目录 '{dir_path}' 的内容: {e}")
-        return None
-
-    if not matching_files:
-        print(f"警告: 在 '{dir_path}' 中没有找到匹配的响应文件")
-        return None
-
-    latest_file = max(matching_files, key=lambda f: os.path.getmtime(os.path.join(dir_path, f)))
-    return os.path.join(dir_path, latest_file)
+    # 保存文档
+    doc.save(output_file)
 
 def generate_md_doc(http_file_path):
     parsed_requests = parse_http_file(http_file_path)
 
     md = "# API 接口文档\n\n"
 
-    for index, (interface_name, method, url, headers, body, response_file) in enumerate(parsed_requests, 1):
-        md += f"## {index}. {interface_name}\n\n"
+    for interface_name, method, url, headers, body, response_file in parsed_requests:
+        md += f"## {interface_name}\n\n"
         md += f"### 请求URL\n\n`{method} {url}`\n\n"
 
         if headers:
@@ -155,28 +97,34 @@ def generate_md_doc(http_file_path):
 
 # 使用示例
 http_file_path = 'C:\\Users\\rog\\AppData\\Roaming\\JetBrains\\IntelliJIdea2024.2\\scratches\\generated-requests.http'
-md_doc = generate_md_doc(http_file_path)
-print(md_doc)
+md_content = generate_md_doc(http_file_path)
 
 # 保存Markdown文档
-output_file = 'api_doc.md'
-with open(output_file, 'w', encoding='utf-8') as file:
-    file.write(md_doc)
-print(f"Markdown文档已保存至 {output_file}")
+md_output_file = 'api_doc.md'
+with open(md_output_file, 'w', encoding='utf-8') as file:
+    file.write(md_content)
+print(f"Markdown文档已保存至 {md_output_file}")
+
+# 转换为Word文档
+docx_output_file = 'api_doc.docx'
+markdown_to_docx(md_content, docx_output_file)
+print(f"Word文档已保存至 {docx_output_file}")
 ```
 
-主要的改动：
+这个脚本做了以下改动：
 
-1. 在 `parse_http_file` 函数中，我们现在提取 # 号后的文字作为接口名。
+1. 添加了 `markdown_to_docx` 函数，用于将Markdown内容转换为Word文档。
 
-2. 修改了请求方法和URL的提取方式，现在会查找包含 "http" 的行来确定方法和URL。
+2. 在主程序部分，我们首先生成Markdown内容，然后将其保存为.md文件。
 
-3. 调整了 `get_latest_response_file` 函数，现在它使用HTTP文件的路径来查找响应文件。首先尝试直接查找响应文件，如果找不到，则尝试匹配模式。
+3. 接着，我们调用 `markdown_to_docx` 函数将Markdown内容转换为Word文档并保存。
 
-4. 在 `generate_md_doc` 函数中，我们现在使用提取的接口名作为每个接口的标题。
+请注意，这个转换过程可能无法完美保留所有Markdown的格式，特别是一些复杂的表格或代码块。你可能需要在生成的Word文档中进行一些手动调整。
 
-这些修改应该能满足您的新要求。脚本现在会：
-- 使用 # 号后的文字作为接口名
-- 尝试在HTTP文件所在的目录中查找响应文件
+运行这个脚本后，你应该能得到两个文件：
+1. `api_doc.md`：Markdown格式的API文档
+2. `api_doc.docx`：Word格式的API文档
 
-请再次运行这个脚本，看看是否能生成符合您期望的文档。如果还有任何问题或需要进一步的调整，请告诉我。
+如果你需要更复杂的格式转换或更精确的样式控制，可能需要使用更高级的工具或库，如Pandoc。但对于大多数基本需求，这个方法应该已经足够了。
+
+如果你在运行过程中遇到任何问题，或者需要进一步的调整，请告诉我。
