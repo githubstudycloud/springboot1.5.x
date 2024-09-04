@@ -2763,6 +2763,54 @@ Copy<?xml version="1.0" encoding="UTF-8"?>
 这个配置应该能满足api-monitor-core模块的所有需求。它包括了Web开发、AOP、数据持久化等所有必要的依赖。如果在开发过程中发现还需要其他依赖，可以随时添加。
 
 ## Prompt:
+<button>Copy</button>
+
+`private Map<String, String> getRequestHeaders(HttpServletRequest request) { Map<String, String> headers = new HashMap<>(); request.getHeaderNames().asIterator().forEachRemaining(headerName -> headers.put(headerName, request.getHeader(headerName))); return headers;} 这个asIterator方法没法用，并且getheader要求string`
+
+## Response:
+您说得对，我为这个错误道歉。这个问题可能是由于使用了较新版本的Java特性，而项目可能使用的是较旧的Java版本。让我们修改这个方法以确保它能在Java 8及以上版本中正常工作。
+
+以下是修改后的 `getRequestHeaders` 方法：
+
+```java
+Copyprivate Map<String, String> getRequestHeaders(HttpServletRequest request) {
+    Map<String, String> headers = new HashMap<>();
+    Enumeration<String> headerNames = request.getHeaderNames();
+    while (headerNames.hasMoreElements()) {
+        String headerName = headerNames.nextElement();
+        headers.put(headerName, request.getHeader(headerName));
+    }
+    return headers;
+}
+```
+
+这个版本的方法使用了 `Enumeration` 接口，它在所有支持的Java版本中都可以使用。它遍历所有的头名称，并将每个头名称及其对应的值添加到 `headers` Map中。
+
+此外，`request.getHeader(String name)` 方法确实返回一个 `String`，所以这个修改后的版本也解决了这个问题。
+
+这个修改应该能解决您提到的两个问题：
+
+1. 移除了 `asIterator()` 方法的使用，它可能不在某些Java版本中可用。
+2. 正确地使用 `request.getHeader(String name)` 方法，它返回一个 `String`。
+
+如果您的项目使用的是Java 8或更高版本，您也可以考虑使用Java 8的Stream API来实现这个方法，如下所示：
+
+```java
+Copyprivate Map<String, String> getRequestHeaders(HttpServletRequest request) {
+    return Collections.list(request.getHeaderNames())
+            .stream()
+            .collect(Collectors.toMap(
+                Function.identity(),
+                request::getHeader,
+                (v1, v2) -> v1,
+                HashMap::new
+            ));
+}
+```
+
+这个版本使用了Java 8的特性，可能看起来更简洁，但可读性可能稍差一些。选择哪个版本取决于您的项目需求和团队的编码风格偏好。
+
+## Prompt:
 undefined
 
 ## Response:
