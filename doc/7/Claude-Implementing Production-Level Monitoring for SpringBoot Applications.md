@@ -3071,6 +3071,182 @@ Copymonitor:
 确保在您的项目中正确设置了这些配置，特别是 `monitor.datasource.enabled` 设置为 `true`，并提供了正确的 JDBC URL、用户名、密码和驱动类名。这应该能够解决您遇到的 "JDBC URL is required with driverClassName" 错误。
 
 ## Prompt:
+无论我使用自定义数据源还是非自定义数据源，始终报刚才的jdbcurl的问题
+
+## Response:
+Y
+
+我理解您的困扰。这个问题可能是由于Spring Boot自动配置与我们的自定义配置之间的冲突造成的。让我们采取一些步骤来解决这个问题：
+
+1. 首先，让我们修改 `MonitorDataSourceConfig` 类，使其更明确地控制数据源的创建：
+
+```java
+Copypackage com.example.monitor.config;
+
+import com.zaxxer.hikari.HikariDataSource;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
+
+import javax.sql.DataSource;
+
+@Configuration
+@ConditionalOnProperty(name = "monitor.datasource.enabled", havingValue = "true")
+@EnableConfigurationProperties(MonitorProperties.class)
+public class MonitorDataSourceConfig {
+
+    @Bean
+    @ConfigurationProperties("monitor.datasource")
+    public DataSourceProperties monitorDataSourceProperties() {
+        return new DataSourceProperties();
+    }
+
+    @Bean
+    @Primary
+    public DataSource monitorDataSource() {
+        return monitorDataSourceProperties().initializeDataSourceBuilder()
+                .type(HikariDataSource.class)
+                .build();
+    }
+}
+```
+
+2. 更新 `MonitorProperties` 类，移除自定义的 `DataSourceConfig`：
+
+```java
+Copy@Data
+@ConfigurationProperties(prefix = "monitor")
+public class MonitorProperties {
+    private boolean enabled = true;
+    private AopConfig aop = new AopConfig();
+    private FilterConfig filter = new FilterConfig();
+    private ListConfig whitelist = new ListConfig();
+    private ListConfig blacklist = new ListConfig();
+
+    // Remove DataSourceConfig
+
+    // Other inner classes remain the same
+}
+```
+
+3. 修改 `application.yml` 配置文件：
+
+```yaml
+Copymonitor:
+  enabled: true
+  aop:
+    enabled: true
+  filter:
+    enabled: true
+  datasource:
+    enabled: true
+    url: jdbc:mysql://localhost:3306/monitor_db
+    username: monitor_user
+    password: monitor_password
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/your_main_db
+    username: your_main_user
+    password: your_main_password
+    driver-class-name: com.mysql.cj.jdbc.Driver
+```
+
+4. 在 `MonitorAutoConfiguration` 中，确保我们正确导入了 `MonitorDataSourceConfig`：
+
+```java
+Copy@Configuration
+@ConditionalOnProperty(name = "monitor.enabled", havingValue = "true", matchIfMissing = true)
+@EnableConfigurationProperties(MonitorProperties.class)
+@Import({MonitorJpaConfig.class, MonitorSecurityConfig.class, MonitorDataSourceConfig.class})
+public class MonitorAutoConfiguration {
+    // ... 其他代码保持不变
+}
+```
+
+5. 创建一个新的 `MonitorJpaConfig` 类来配置 JPA：
+
+```java
+Copypackage com.example.monitor.config;
+
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.orm.jpa.EntityManagerFactoryBuilder;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
+import org.springframework.orm.jpa.JpaTransactionManager;
+import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
+import org.springframework.transaction.PlatformTransactionManager;
+
+import javax.sql.DataSource;
+
+@Configuration
+@ConditionalOnProperty(name = "monitor.datasource.enabled", havingValue = "true")
+@EnableJpaRepositories(
+        basePackages = "com.example.monitor.repository",
+        entityManagerFactoryRef = "monitorEntityManagerFactory",
+        transactionManagerRef = "monitorTransactionManager"
+)
+public class MonitorJpaConfig {
+
+    @Bean
+    public LocalContainerEntityManagerFactoryBean monitorEntityManagerFactory(
+            EntityManagerFactoryBuilder builder,
+            @Qualifier("monitorDataSource") DataSource dataSource) {
+        return builder
+                .dataSource(dataSource)
+                .packages("com.example.monitor.model")
+                .persistenceUnit("monitor")
+                .build();
+    }
+
+    @Bean
+    public PlatformTransactionManager monitorTransactionManager(
+            @Qualifier("monitorEntityManagerFactory") LocalContainerEntityManagerFactoryBean monitorEntityManagerFactory) {
+        return new JpaTransactionManager(monitorEntityManagerFactory.getObject());
+    }
+}
+```
+
+6. 确保在主项目中正确使用 `@EnableMonitor` 注解：
+
+```java
+Copyimport com.example.monitor.annotation.EnableMonitor;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+@EnableMonitor
+public class YourApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(YourApplication.class, args);
+    }
+}
+```
+
+这些更改应该解决 JDBC URL 的问题，无论您是使用自定义数据源还是默认数据源。主要的变更包括：
+
+1. 使用 Spring Boot 的 `DataSourceProperties` 来配置数据源，这样可以更好地与 Spring Boot 的自动配置集成。
+2. 分离监控模块的数据源配置和主应用的数据源配置。
+3. 明确配置 JPA 以使用监控模块的数据源。
+
+请确保在您的项目中正确设置了这些配置，特别是 `monitor.datasource.enabled` 设置为 `true`，并提供了正确的 JDBC URL、用户名、密码和驱动类名。
+
+如果仍然遇到问题，请检查以下几点：
+
+1. 确保 MySQL 驱动在类路径中。
+2. 验证数据库是否正在运行，以及提供的凭据是否正确。
+3. 检查防火墙设置，确保应用可以连接到数据库。
+
+如果问题仍然存在，请提供更详细的错误信息或堆栈跟踪，这将有助于进一步诊断问题。
+
+## Prompt:
 undefined
 
 ## Response:
