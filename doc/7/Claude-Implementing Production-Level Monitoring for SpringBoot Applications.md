@@ -2924,6 +2924,153 @@ public class MonitorProperties {
 通过这些更改，监控系统的配置变得更加统一和灵活。用户可以通过配置文件轻松开启或关闭特定的监控功能，以及配置白名单和黑名单。同时，使用 `@EnableMonitor` 注解可以简单地在任何 Spring Boot 项目中启用这个监控系统。
 
 ## Prompt:
+启动提示jdbcurl is required with dridriverClassName，用的自定义数据源
+
+## Response:
+Y
+
+我理解您遇到了 JDBC URL 的问题，这通常发生在尝试使用自定义数据源时。让我们来解决这个问题，并确保自定义数据源配置正确。
+
+首先，我们需要修改 `MonitorProperties` 类，以确保它包含所有必要的数据源配置选项：
+
+```java
+Copypackage com.example.monitor.config;
+
+import lombok.Data;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.util.List;
+
+@Data
+@ConfigurationProperties(prefix = "monitor")
+public class MonitorProperties {
+    private boolean enabled = true;
+    private AopConfig aop = new AopConfig();
+    private FilterConfig filter = new FilterConfig();
+    private DataSourceConfig dataSource = new DataSourceConfig();
+    private ListConfig whitelist = new ListConfig();
+    private ListConfig blacklist = new ListConfig();
+
+    @Data
+    public static class AopConfig {
+        private boolean enabled = true;
+    }
+
+    @Data
+    public static class FilterConfig {
+        private boolean enabled = true;
+    }
+
+    @Data
+    public static class DataSourceConfig {
+        private boolean enabled = false;
+        private String url;
+        private String username;
+        private String password;
+        private String driverClassName;
+        // 添加连接池相关配置
+        private int maxPoolSize = 10;
+        private int minIdle = 5;
+        private long connectionTimeout = 30000;
+    }
+
+    @Data
+    public static class ListConfig {
+        private boolean enabled = false;
+        private List<String> paths;
+    }
+}
+```
+
+接下来，我们需要创建一个专门的配置类来设置自定义数据源。这个类应该只在 `monitor.datasource.enabled` 为 true 时生效：
+
+```java
+Copypackage com.example.monitor.config;
+
+import com.zaxxer.hikari.HikariDataSource;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+import javax.sql.DataSource;
+
+@Configuration
+@ConditionalOnProperty(name = "monitor.datasource.enabled", havingValue = "true")
+@EnableConfigurationProperties(MonitorProperties.class)
+public class MonitorDataSourceConfig {
+
+    @Bean
+    public DataSource monitorDataSource(MonitorProperties properties) {
+        HikariDataSource dataSource = new HikariDataSource();
+        MonitorProperties.DataSourceConfig config = properties.getDataSource();
+        
+        dataSource.setJdbcUrl(config.getUrl());
+        dataSource.setUsername(config.getUsername());
+        dataSource.setPassword(config.getPassword());
+        dataSource.setDriverClassName(config.getDriverClassName());
+        
+        dataSource.setMaximumPoolSize(config.getMaxPoolSize());
+        dataSource.setMinimumIdle(config.getMinIdle());
+        dataSource.setConnectionTimeout(config.getConnectionTimeout());
+
+        return dataSource;
+    }
+}
+```
+
+然后，在 `MonitorAutoConfiguration` 类中导入这个新的配置类：
+
+```java
+Copy@Configuration
+@ConditionalOnProperty(name = "monitor.enabled", havingValue = "true", matchIfMissing = true)
+@EnableConfigurationProperties(MonitorProperties.class)
+@Import({MonitorJpaConfig.class, MonitorSecurityConfig.class, MonitorDataSourceConfig.class})
+public class MonitorAutoConfiguration {
+    // ... 其他代码保持不变
+}
+```
+
+最后，更新 `application.yml` 文件，确保包含所有必要的数据源配置：
+
+```yaml
+Copymonitor:
+  enabled: true
+  aop:
+    enabled: true
+  filter:
+    enabled: true
+  datasource:
+    enabled: true
+    url: jdbc:mysql://localhost:3306/monitor_db
+    username: monitor_user
+    password: monitor_password
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    max-pool-size: 10
+    min-idle: 5
+    connection-timeout: 30000
+  whitelist:
+    enabled: false
+    paths:
+      - /api/public/**
+      - /health
+  blacklist:
+    enabled: false
+    paths:
+      - /api/admin/**
+      - /internal/**
+```
+
+这些更改应该解决 JDBC URL 的问题，并允许您使用自定义数据源。主要的变更包括：
+
+1. 在 `MonitorProperties` 中添加了更多的数据源配置选项。
+2. 创建了一个专门的 `MonitorDataSourceConfig` 类来配置自定义数据源。
+3. 在 `MonitorAutoConfiguration` 中导入了新的数据源配置类。
+4. 更新了 `application.yml` 示例，包含所有必要的数据源配置。
+
+确保在您的项目中正确设置了这些配置，特别是 `monitor.datasource.enabled` 设置为 `true`，并提供了正确的 JDBC URL、用户名、密码和驱动类名。这应该能够解决您遇到的 "JDBC URL is required with driverClassName" 错误。
+
+## Prompt:
 undefined
 
 ## Response:
