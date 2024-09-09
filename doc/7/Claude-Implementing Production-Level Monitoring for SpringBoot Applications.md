@@ -2755,6 +2755,175 @@ public interface MonitorRepository extends JpaRepository<MonitorRecord, Long> {
 再次为之前的错误表示歉意，感谢您的指出，这有助于我们改进和完善监控系统。
 
 ## Prompt:
+monitorconfig和monitorautoconfiguration的bean有重复，，怎么合并，以及修改enablemon monitor的引用还有对应配置文件开启参数
+
+## Response:
+Y
+
+您说得对，我们确实需要合并 `MonitorConfig` 和 `MonitorAutoConfiguration`，并调整 `@EnableMonitor` 注解的引用。我们来修正这些问题，并确保配置文件参数正确。
+
+1. 首先，让我们合并 `MonitorConfig` 和 `MonitorAutoConfiguration` 到一个类中：
+
+```java
+Copypackage com.example.monitor.config;
+
+import com.example.monitor.aspect.MonitorAspect;
+import com.example.monitor.filter.MonitorFilter;
+import com.example.monitor.service.MonitorService;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
+
+@Configuration
+@ConditionalOnProperty(name = "monitor.enabled", havingValue = "true", matchIfMissing = true)
+@EnableConfigurationProperties(MonitorProperties.class)
+@Import({MonitorJpaConfig.class, MonitorSecurityConfig.class})
+public class MonitorAutoConfiguration {
+
+    @Bean
+    @ConditionalOnProperty(name = "monitor.aop.enabled", havingValue = "true", matchIfMissing = true)
+    public MonitorAspect monitorAspect(MonitorService monitorService) {
+        return new MonitorAspect(monitorService);
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "monitor.filter.enabled", havingValue = "true", matchIfMissing = true)
+    public MonitorFilter monitorFilter(MonitorService monitorService) {
+        return new MonitorFilter(monitorService);
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "monitor.whitelist.enabled", havingValue = "true")
+    public MonitorWhitelistConfig monitorWhitelistConfig() {
+        return new MonitorWhitelistConfig();
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "monitor.blacklist.enabled", havingValue = "true")
+    public MonitorBlacklistConfig monitorBlacklistConfig() {
+        return new MonitorBlacklistConfig();
+    }
+}
+```
+
+2. 更新 `@EnableMonitor` 注解：
+
+```java
+Copypackage com.example.monitor.annotation;
+
+import com.example.monitor.config.MonitorAutoConfiguration;
+import org.springframework.context.annotation.Import;
+
+import java.lang.annotation.*;
+
+@Target(ElementType.TYPE)
+@Retention(RetentionPolicy.RUNTIME)
+@Documented
+@Import(MonitorAutoConfiguration.class)
+public @interface EnableMonitor {
+}
+```
+
+3. 更新 `application.yml` 配置文件，包含所有可能的配置选项：
+
+```yaml
+Copymonitor:
+  enabled: true
+  aop:
+    enabled: true
+  filter:
+    enabled: true
+  datasource:
+    enabled: false
+    url: jdbc:mysql://localhost:3306/monitor_db
+    username: monitor_user
+    password: monitor_password
+  whitelist:
+    enabled: false
+    paths:
+      - /api/public/**
+      - /health
+  blacklist:
+    enabled: false
+    paths:
+      - /api/admin/**
+      - /internal/**
+```
+
+4. 在使用监控功能的项目中，主应用类应该这样使用 `@EnableMonitor` 注解：
+
+```java
+Copyimport com.example.monitor.annotation.EnableMonitor;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+@EnableMonitor
+public class YourApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(YourApplication.class, args);
+    }
+}
+```
+
+5. 为了确保 `MonitorProperties` 正确加载所有配置，我们需要更新它：
+
+```java
+Copypackage com.example.monitor.config;
+
+import lombok.Data;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.util.List;
+
+@Data
+@ConfigurationProperties(prefix = "monitor")
+public class MonitorProperties {
+    private boolean enabled = true;
+    private AopConfig aop = new AopConfig();
+    private FilterConfig filter = new FilterConfig();
+    private DataSourceConfig dataSource = new DataSourceConfig();
+    private ListConfig whitelist = new ListConfig();
+    private ListConfig blacklist = new ListConfig();
+
+    @Data
+    public static class AopConfig {
+        private boolean enabled = true;
+    }
+
+    @Data
+    public static class FilterConfig {
+        private boolean enabled = true;
+    }
+
+    @Data
+    public static class DataSourceConfig {
+        private boolean enabled = false;
+        private String url;
+        private String username;
+        private String password;
+    }
+
+    @Data
+    public static class ListConfig {
+        private boolean enabled = false;
+        private List<String> paths;
+    }
+}
+```
+
+这些更改解决了以下问题：
+
+1. 合并了 `MonitorConfig` 和 `MonitorAutoConfiguration`，消除了重复的 bean 定义。
+2. 更新了 `@EnableMonitor` 注解以正确引用合并后的配置类。
+3. 提供了一个完整的 `application.yml` 配置示例，包含所有可能的监控配置选项。
+4. 更新了 `MonitorProperties` 类以匹配新的配置结构，包括白名单和黑名单配置。
+
+通过这些更改，监控系统的配置变得更加统一和灵活。用户可以通过配置文件轻松开启或关闭特定的监控功能，以及配置白名单和黑名单。同时，使用 `@EnableMonitor` 注解可以简单地在任何 Spring Boot 项目中启用这个监控系统。
+
+## Prompt:
 undefined
 
 ## Response:
