@@ -2646,6 +2646,115 @@ public class MonitorAutoConfiguration {
 这些修改使得监控系统更加完整和灵活。你可以通过配置文件来控制监控的各个方面，如启用/禁用 AOP 或 Filter，配置独立的数据源等。
 
 ## Prompt:
+statisticsservice使用record.getrequestinfogetrequestinfo.geturl根本拿不到，请修改
+
+## Response:
+Y
+
+您说得对，我为这个疏忽深表歉意。确实，我们需要调整 `StatisticsService` 以适应 `MonitorRecord` 的实际结构。让我们来修正这个问题。
+
+以下是更新后的 `StatisticsService.java`:
+
+```java
+Copypackage com.example.monitor.service;
+
+import com.example.monitor.model.MonitorRecord;
+import com.example.monitor.repository.MonitorRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+@Service
+public class StatisticsService {
+
+    private final MonitorRepository monitorRepository;
+
+    @Autowired
+    public StatisticsService(MonitorRepository monitorRepository) {
+        this.monitorRepository = monitorRepository;
+    }
+
+    public Map<String, Long> getAccessCountByEndpoint() {
+        List<MonitorRecord> records = monitorRepository.findAll();
+        return records.stream()
+                .collect(Collectors.groupingBy(
+                        MonitorRecord::getUrl,
+                        Collectors.counting()
+                ));
+    }
+
+    public Map<String, Double> getAverageResponseTimeByEndpoint() {
+        List<MonitorRecord> records = monitorRepository.findAll();
+        return records.stream()
+                .collect(Collectors.groupingBy(
+                        MonitorRecord::getUrl,
+                        Collectors.averagingLong(MonitorRecord::getDuration)
+                ));
+    }
+
+    public List<String> getUnusedInterfaces() {
+        LocalDateTime oneMonthAgo = LocalDateTime.now().minusMonths(1);
+        List<MonitorRecord> recentRecords = monitorRepository.findByTimestampAfter(oneMonthAgo);
+        List<String> allUrls = monitorRepository.findDistinctUrls();
+        
+        Set<String> usedUrls = recentRecords.stream()
+                .map(MonitorRecord::getUrl)
+                .collect(Collectors.toSet());
+        
+        return allUrls.stream()
+                .filter(url -> !usedUrls.contains(url))
+                .collect(Collectors.toList());
+    }
+
+    public List<Map.Entry<String, Long>> getTopAccessedEndpoints(int limit) {
+        Map<String, Long> accessCounts = getAccessCountByEndpoint();
+        return accessCounts.entrySet().stream()
+                .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                .limit(limit)
+                .collect(Collectors.toList());
+    }
+}
+```
+
+这个更新版本的 `StatisticsService` 直接使用 `MonitorRecord` 的 `getUrl()` 方法来获取 URL，而不是尝试通过 `RequestInfo` 获取。
+
+同时，我们还需要在 `MonitorRepository` 接口中添加一些新的方法：
+
+```java
+Copypackage com.example.monitor.repository;
+
+import com.example.monitor.model.MonitorRecord;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.stereotype.Repository;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+@Repository
+public interface MonitorRepository extends JpaRepository<MonitorRecord, Long> {
+    List<MonitorRecord> findByTimestampAfter(LocalDateTime timestamp);
+
+    @Query("SELECT DISTINCT m.url FROM MonitorRecord m")
+    List<String> findDistinctUrls();
+}
+```
+
+这些更改解决了以下问题：
+
+1. `StatisticsService` 现在直接使用 `MonitorRecord` 的字段，而不是尝试访问不存在的嵌套对象。
+2. 添加了 `getUnusedInterfaces()` 方法，该方法查找过去一个月内未被访问的接口。
+3. 在 `MonitorRepository` 中添加了新的查询方法，以支持获取特定时间之后的记录和所有不同的 URL。
+
+这些修改应该使 `StatisticsService` 能够正确地处理 `MonitorRecord` 对象，并提供准确的统计信息。同时，新增的方法也提供了更多的分析功能，如查找未使用的接口。
+
+再次为之前的错误表示歉意，感谢您的指出，这有助于我们改进和完善监控系统。
+
+## Prompt:
 undefined
 
 ## Response:
