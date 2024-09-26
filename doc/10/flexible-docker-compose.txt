@@ -1,0 +1,59 @@
+# docker-compose.yml
+version: '3'
+
+services:
+  app:
+    build: .
+    image: my-spring-app
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+      - REDIS_HOST=redis
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+
+# Dockerfile
+FROM openjdk:11-jre-slim
+WORKDIR /app
+COPY target/*.jar app.jar
+ENTRYPOINT ["java", "-jar", "app.jar"]
+
+# build-and-run.sh
+#!/bin/bash
+
+# 编译Spring Boot应用
+echo "编译Spring Boot应用..."
+./mvnw clean package -DskipTests
+
+# 设置默认的服务数量
+DEFAULT_INSTANCES=3
+INSTANCES=${1:-$DEFAULT_INSTANCES}
+
+# 生成docker-compose.override.yml文件
+echo "生成docker-compose.override.yml文件..."
+cat > docker-compose.override.yml <<EOF
+version: '3'
+
+services:
+EOF
+
+for i in $(seq 1 $INSTANCES)
+do
+  cat >> docker-compose.override.yml <<EOF
+  app_${i}:
+    extends:
+      service: app
+    ports:
+      - "808${i}:8080"
+EOF
+done
+
+# 构建和启动Docker服务
+echo "构建和启动 $INSTANCES 个服务实例..."
+docker-compose up --build -d
+
+echo "服务已启动!"
