@@ -1,0 +1,243 @@
+# Docker Compose 配置 (docker-compose.yml)
+
+version: '3.8'
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+    depends_on:
+      - elasticsearch
+      - logstash
+      - kibana
+      - prometheus
+      - grafana
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.14.0
+    environment:
+      - discovery.type=single-node
+    ports:
+      - "9200:9200"
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:7.14.0
+    volumes:
+      - ./logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+    ports:
+      - "5000:5000"
+    depends_on:
+      - elasticsearch
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.14.0
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+
+  prometheus:
+    image: prom/prometheus:v2.30.3
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:8.2.0
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+# Dockerfile
+
+FROM openjdk:17-jdk-slim
+VOLUME /tmp
+COPY target/*.jar app.jar
+ENTRYPOINT ["java","-jar","/app.jar"]
+
+# Logstash 配置 (logstash.conf)
+
+input {
+  tcp {
+    port => 5000
+    codec => json_lines
+  }
+}
+
+output {
+  elasticsearch {
+    hosts => ["elasticsearch:9200"]
+  }
+}
+
+# Prometheus 配置 (prometheus.yml)
+
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'spring-boot-app'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['app:8080']
+
+# Java 代码
+
+// MainApplication.java
+package com.example;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class MainApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(MainApplication.class, args);
+    }
+}
+
+// CustomMetrics.java
+package com.example.metrics;
+
+import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.stereotype.Component;
+
+import java.util.concurrent.TimeUnit;
+
+@Component
+public class CustomMetrics {
+    private final MeterRegistry meterRegistry;
+
+    public CustomMetrics(MeterRegistry meterRegistry) {
+        this.meterRegistry = meterRegistry;
+    }
+
+    public void recordBusinessProcessDuration(String processName, long duration) {
+        meterRegistry.timer("business.process.duration", "process", processName)
+                     .record(duration, TimeUnit.MILLISECONDS);
+    }
+}
+
+// BusinessService.java
+package com.example.service;
+
+import com.example.metrics.CustomMetrics;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+
+@Service
+public class BusinessService {
+    private static final Logger logger = LoggerFactory.getLogger(BusinessService.class);
+    private final CustomMetrics customMetrics;
+
+    public BusinessService(CustomMetrics customMetrics) {
+        this.customMetrics = customMetrics;
+    }
+
+    public void performBusinessProcess() {
+        long startTime = System.currentTimeMillis();
+        logger.info("Starting business process");
+        
+        // 模拟业务逻辑
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException e) {
+            logger.error("Business process interrupted", e);
+        }
+        
+        long duration = System.currentTimeMillis() - startTime;
+        customMetrics.recordBusinessProcessDuration("sample-process", duration);
+        logger.info("Business process completed in {} ms", duration);
+    }
+}
+
+// DemoController.java
+package com.example.controller;
+
+import com.example.service.BusinessService;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+public class DemoController {
+    private final BusinessService businessService;
+
+    public DemoController(BusinessService businessService) {
+        this.businessService = businessService;
+    }
+
+    @GetMapping("/demo")
+    public String demo() {
+        businessService.performBusinessProcess();
+        return "Process completed";
+    }
+}
+
+# 配置文件
+
+# application.yml
+server:
+  port: 8080
+
+spring:
+  application:
+    name: demo-app
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    root: INFO
+    com.example: DEBUG
+
+# logback-spring.xml
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+
+    <appender name="LOGSTASH" class="net.logstash.logback.appender.LogstashTcpSocketAppender">
+        <destination>logstash:5000</destination>
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder"/>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="LOGSTASH"/>
+    </root>
+
+    <logger name="com.example" level="DEBUG"/>
+</configuration>
+
+# pom.xml (关键依赖)
+<dependencies>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>io.micrometer</groupId>
+        <artifactId>micrometer-registry-prometheus</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>net.logstash.logback</groupId>
+        <artifactId>logstash-logback-encoder</artifactId>
+        <version>7.2</version>
+    </dependency>
+</dependencies>
